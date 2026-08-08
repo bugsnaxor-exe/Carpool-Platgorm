@@ -37,7 +37,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
   const pickupDebounceRef = useRef(null);
   const destDebounceRef = useRef(null);
 
-  // Helper: Fetch matching location suggestions via OpenStreetMap Nominatim API
+  // Helper: Deep Hyper-Local Location Search API with Multi-Tier Fallbacks
   const fetchLocationSuggestions = async (query, setSuggestions, setShowDropdown) => {
     if (!query || query.trim().length < 2) {
       setSuggestions([]);
@@ -46,15 +46,38 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     }
 
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(query.trim())}`);
-      const data = await res.json();
+      const q = query.trim();
+      // Tier 1: Localized Search with extratags, namedetails, and sub-locality coverage
+      let url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&extratags=1&namedetails=1&limit=8&countrycodes=in&q=${encodeURIComponent(q)}`;
+      let res = await fetch(url);
+      let data = await res.json();
+
+      // Tier 2: Appended Region Fallback if 0 results
+      if (!data || data.length === 0) {
+        url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=8&q=${encodeURIComponent(q + ', India')}`;
+        res = await fetch(url);
+        data = await res.json();
+      }
+
+      // Tier 3: Global Unconstrained Search
+      if (!data || data.length === 0) {
+        url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=8&q=${encodeURIComponent(q)}`;
+        res = await fetch(url);
+        data = await res.json();
+      }
+
       if (data && data.length > 0) {
-        const formatted = data.map(item => ({
-          label: item.display_name.split(',').slice(0, 3).join(','),
-          fullAddress: item.display_name,
-          lat: parseFloat(item.lat),
-          lng: parseFloat(item.lon)
-        }));
+        const formatted = data.map(item => {
+          const parts = item.display_name.split(',');
+          // Detailed sub-locality label (e.g., "Hridaypur, Barasat, North 24 Parganas")
+          const label = parts.length > 3 ? parts.slice(0, 3).join(', ') : item.display_name;
+          return {
+            label: label,
+            fullAddress: item.display_name,
+            lat: parseFloat(item.lat),
+            lng: parseFloat(item.lon)
+          };
+        });
         setSuggestions(formatted);
         setShowDropdown(true);
       } else {
@@ -75,7 +98,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     if (pickupDebounceRef.current) clearTimeout(pickupDebounceRef.current);
     pickupDebounceRef.current = setTimeout(() => {
       fetchLocationSuggestions(val, setPickupSuggestions, setShowPickupDropdown);
-    }, 300);
+    }, 280);
   };
 
   // Handle Destination Typing Autocomplete
@@ -86,7 +109,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     if (destDebounceRef.current) clearTimeout(destDebounceRef.current);
     destDebounceRef.current = setTimeout(() => {
       fetchLocationSuggestions(val, setDestSuggestions, setShowDestDropdown);
-    }, 300);
+    }, 280);
   };
 
   // Helper: Fetch actual turn-by-turn road geometry via OSRM Driving Router API
@@ -176,7 +199,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     }
   };
 
-  // Safe Leaflet Map Initialization & Re-mounting Fix
+  // Safe Leaflet Map Initialization & Re-mounting Fix + Map Click Location Selection
   useEffect(() => {
     if (step === 'SEARCH' && mapRef.current) {
       if (mapInstance.current) {
@@ -188,6 +211,21 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap'
       }).addTo(mapInstance.current);
+
+      // Interactive Map Click Location Selection
+      mapInstance.current.on('click', async (e) => {
+        const { lat, lng } = e.latlng;
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+          const data = await res.json();
+          const placeName = data.display_name ? data.display_name.split(',').slice(0, 3).join(',') : `Map Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+
+          const clickedLoc = { lat, lng, name: placeName };
+          setDestination(placeName);
+          destLocRef.current = clickedLoc;
+          await drawRoadRouteOnMap(null, clickedLoc);
+        } catch (err) {}
+      });
 
       drawRoadRouteOnMap();
     }
@@ -331,9 +369,13 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
           {/* Interactive Route Map Preview */}
           <div style={{ position: 'relative' }}>
             <div className="map-view-container" ref={mapRef}></div>
-            {routingLoading && (
+            {routingLoading ? (
               <div style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(15, 23, 42, 0.85)', padding: '6px 12px', borderRadius: '12px', color: '#10b981', fontSize: '0.78rem', fontWeight: '700', zIndex: 500 }}>
                 <i className="fa-solid fa-spinner fa-spin"></i> Calculating Road Navigation...
+              </div>
+            ) : (
+              <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'rgba(15, 23, 42, 0.85)', padding: '5px 10px', borderRadius: '12px', color: '#cbd5e1', fontSize: '0.72rem', fontWeight: '600', zIndex: 500 }}>
+                <i className="fa-solid fa-hand-pointer" style={{ color: '#10b981' }}></i> Click map to drop pin
               </div>
             )}
           </div>
@@ -349,7 +391,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                 onChange={handlePickupChange} 
                 onFocus={() => pickupSuggestions.length > 0 && setShowPickupDropdown(true)}
                 onBlur={() => setTimeout(() => setShowPickupDropdown(false), 250)}
-                placeholder="Start typing pickup location..."
+                placeholder="Type any local area, landmark, or street..."
                 required 
               />
 
@@ -362,7 +404,10 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                       onMouseDown={() => selectPickupSuggestion(item)}
                     >
                       <i className="fa-solid fa-location-dot" style={{ color: '#10b981' }}></i>
-                      <span>{item.label}</span>
+                      <div>
+                        <div style={{ fontWeight: '600' }}>{item.label}</div>
+                        <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{item.fullAddress}</div>
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -412,7 +457,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                 onChange={handleDestinationChange} 
                 onFocus={() => destSuggestions.length > 0 && setShowDestDropdown(true)}
                 onBlur={() => setTimeout(() => setShowDestDropdown(false), 250)}
-                placeholder="Start typing destination..."
+                placeholder="Type destination area or landmark..."
                 required 
               />
 
@@ -425,7 +470,10 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                       onMouseDown={() => selectDestSuggestion(item)}
                     >
                       <i className="fa-solid fa-flag-checkered" style={{ color: '#ef4444' }}></i>
-                      <span>{item.label}</span>
+                      <div>
+                        <div style={{ fontWeight: '600' }}>{item.label}</div>
+                        <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{item.fullAddress}</div>
+                      </div>
                     </li>
                   ))}
                 </ul>
