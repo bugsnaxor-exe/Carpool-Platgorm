@@ -94,12 +94,23 @@ const register = async (body) => {
     org = await Organization.findOne() || await Organization.create({ name: 'Acme Corporation', code: 'ACME' });
   }
 
-  const existingUser = await User.findOne({
-    $or: [{ email: email.trim().toLowerCase() }, { mobileNumber: mobileNumber ? mobileNumber.trim() : '' }]
-  });
+  const cleanEmail = email ? email.trim().toLowerCase() : '';
+  const cleanMobile = mobileNumber ? mobileNumber.trim() : '';
 
-  if (existingUser) {
-    return { status: 400, data: { error: 'User with this email or phone already exists' } };
+  if (cleanEmail) {
+    const existingByEmail = await User.findOne({ email: cleanEmail });
+    if (existingByEmail) {
+      return { status: 400, data: { error: `An account with email "${cleanEmail}" already exists. Please select the Login tab to log in.` } };
+    }
+  }
+
+  if (cleanMobile) {
+    const existingByMobile = await User.findOne({ 
+      $or: [{ mobileNumber: cleanMobile }, { mobileNumber: `+${cleanMobile.replace(/\D/g, '')}` }] 
+    });
+    if (existingByMobile) {
+      return { status: 400, data: { error: `An account with phone number "${cleanMobile}" already exists. Please use a unique phone number or log in.` } };
+    }
   }
 
   const newUser = await User.create({
