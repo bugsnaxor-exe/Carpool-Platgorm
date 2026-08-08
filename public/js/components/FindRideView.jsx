@@ -6,6 +6,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
   const [seats, setSeats] = useState(1);
   const [recurring, setRecurring] = useState(false);
   const [fetchingGPS, setFetchingGPS] = useState(false);
+  const [routingLoading, setRoutingLoading] = useState(false);
 
   const [step, setStep] = useState('SEARCH'); // 'SEARCH' or 'RESULTS'
   const [rides, setRides] = useState([]);
@@ -14,22 +15,86 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
 
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
+  const routePolylineRef = useRef(null);
+  const pickupMarkerRef = useRef(null);
+  const destMarkerRef = useRef(null);
+
+  // Helper: Geocode location string to Lat/Lng via Nominatim
+  const geocodeAddress = async (address, defaultLat, defaultLng) => {
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`);
+      const data = await res.json();
+      if (data && data.length > 0) {
+        return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), name: data[0].display_name.split(',')[0] };
+      }
+    } catch (e) {}
+    return { lat: defaultLat, lng: defaultLng, name: address };
+  };
+
+  // Helper: Fetch actual road geometry via OSRM Driving Router API
+  const fetchOSRMRoadRoute = async (startLat, startLng, endLat, endLng) => {
+    try {
+      const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.routes && data.routes.length > 0) {
+        // Map GeoJSON [lng, lat] to Leaflet [lat, lng]
+        return data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+      }
+    } catch (e) {
+      console.warn('OSRM Road Route failed, using fallback coordinates');
+    }
+    return [[startLat, startLng], [endLat, endLng]];
+  };
+
+  // Draw Real Road Route on Map
+  const drawRoadRouteOnMap = async () => {
+    if (!mapInstance.current) return;
+    setRoutingLoading(true);
+
+    const startLoc = await geocodeAddress(pickup, 12.9279, 77.6772);
+    const endLoc = await geocodeAddress(destination, 12.8452, 77.6602);
+
+    const roadWaypoints = await fetchOSRMRoadRoute(startLoc.lat, startLoc.lng, endLoc.lat, endLoc.lng);
+
+    // Remove previous layers
+    if (routePolylineRef.current) mapInstance.current.removeLayer(routePolylineRef.current);
+    if (pickupMarkerRef.current) mapInstance.current.removeLayer(pickupMarkerRef.current);
+    if (destMarkerRef.current) mapInstance.current.removeLayer(destMarkerRef.current);
+
+    // Pickup Marker
+    pickupMarkerRef.current = L.marker([startLoc.lat, startLoc.lng])
+      .addTo(mapInstance.current)
+      .bindPopup(`📍 Pickup: ${startLoc.name}`);
+
+    // Destination Marker
+    destMarkerRef.current = L.marker([endLoc.lat, endLoc.lng])
+      .addTo(mapInstance.current)
+      .bindPopup(`🏁 Destination: ${endLoc.name}`);
+
+    // Draw Smooth Road Polyline following actual highways & streets
+    routePolylineRef.current = L.polyline(roadWaypoints, {
+      color: '#10b981',
+      weight: 5,
+      opacity: 0.9,
+      lineCap: 'round',
+      lineJoin: 'round'
+    }).addTo(mapInstance.current);
+
+    // Auto-fit camera bounds to display full route
+    mapInstance.current.fitBounds(routePolylineRef.current.getBounds(), { padding: [30, 30] });
+    setRoutingLoading(false);
+  };
 
   // Initialize Route Preview Map
   useEffect(() => {
     if (step === 'SEARCH' && mapRef.current && !mapInstance.current) {
-      mapInstance.current = L.map(mapRef.current).setView([12.9121, 77.6445], 11);
+      mapInstance.current = L.map(mapRef.current).setView([12.9121, 77.6445], 12);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap'
       }).addTo(mapInstance.current);
 
-      // Pickup Marker
-      L.marker([12.9279, 77.6772]).addTo(mapInstance.current).bindPopup('Pickup: Bellandur');
-      // Destination Marker
-      L.marker([12.8452, 77.6602]).addTo(mapInstance.current).bindPopup('Destination: E-City');
-
-      // Connecting Polyline
-      L.polyline([[12.9279, 77.6772], [12.8452, 77.6602]], { color: '#10b981', weight: 4, dashArray: '6, 8' }).addTo(mapInstance.current);
+      drawRoadRouteOnMap();
     }
   }, [step]);
 
@@ -54,15 +119,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
             : `GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
 
           setPickup(placeName);
-
-          // Pan and place animated marker on Map
-          if (mapInstance.current) {
-            mapInstance.current.setView([latitude, longitude], 14);
-            L.marker([latitude, longitude])
-              .addTo(mapInstance.current)
-              .bindPopup(`📍 Current Location: ${placeName}`)
-              .openPopup();
-          }
+          await drawRoadRouteOnMap();
         } catch (err) {
           setPickup(`Current Location (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
         } finally {
@@ -126,12 +183,26 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
       {step === 'SEARCH' ? (
         <form onSubmit={handleSearchRides}>
           {/* Interactive Route Map Preview */}
-          <div className="map-view-container" ref={mapRef}></div>
+          <div style={{ position: 'relative' }}>
+            <div className="map-view-container" ref={mapRef}></div>
+            {routingLoading && (
+              <div style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(15, 23, 42, 0.85)', padding: '6px 12px', borderRadius: '12px', color: '#10b981', fontSize: '0.78rem', fontWeight: '700', zIndex: 500 }}>
+                <i className="fa-solid fa-spinner fa-spin"></i> Calculating Road Navigation...
+              </div>
+            )}
+          </div>
 
           <div className="card">
             <div className="input-group">
               <label className="input-label"><i className="fa-solid fa-location-dot" style={{ color: '#10b981' }}></i> Pickup Location</label>
-              <input type="text" className="input-field" value={pickup} onChange={(e) => setPickup(e.target.value)} required />
+              <input 
+                type="text" 
+                className="input-field" 
+                value={pickup} 
+                onChange={(e) => setPickup(e.target.value)} 
+                onBlur={drawRoadRouteOnMap}
+                required 
+              />
             </div>
 
             {/* Location Shortcuts & Actual GPS Fetcher */}
@@ -158,18 +229,25 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                 {fetchingGPS ? 'Fetching GPS...' : 'Use Current GPS'}
               </button>
 
-              <button type="button" onClick={() => setPickup('Home (Bellandur)')} style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #334155', background: '#1e293b', color: '#94a3b8', fontSize: '0.78rem', cursor: 'pointer' }}>
+              <button type="button" onClick={async () => { setPickup('Bellandur, Bengaluru'); await drawRoadRouteOnMap(); }} style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #334155', background: '#1e293b', color: '#94a3b8', fontSize: '0.78rem', cursor: 'pointer' }}>
                 <i className="fa-solid fa-house"></i> Home
               </button>
               
-              <button type="button" onClick={() => setPickup('Office (Electronic City)')} style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #334155', background: '#1e293b', color: '#94a3b8', fontSize: '0.78rem', cursor: 'pointer' }}>
+              <button type="button" onClick={async () => { setPickup('Electronic City, Bengaluru'); await drawRoadRouteOnMap(); }} style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #334155', background: '#1e293b', color: '#94a3b8', fontSize: '0.78rem', cursor: 'pointer' }}>
                 <i className="fa-solid fa-building"></i> Office
               </button>
             </div>
 
             <div className="input-group">
               <label className="input-label"><i className="fa-solid fa-flag-checkered" style={{ color: '#ef4444' }}></i> Destination</label>
-              <input type="text" className="input-field" value={destination} onChange={(e) => setDestination(e.target.value)} required />
+              <input 
+                type="text" 
+                className="input-field" 
+                value={destination} 
+                onChange={(e) => setDestination(e.target.value)} 
+                onBlur={drawRoadRouteOnMap}
+                required 
+              />
             </div>
 
             <div style={{ display: 'flex', gap: '12px' }}>

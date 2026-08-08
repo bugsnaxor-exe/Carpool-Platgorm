@@ -4,13 +4,15 @@ function LiveTrackingView({ trip, token, onBack, walletBalance, setWalletBalance
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const driverMarker = useRef(null);
+  const roadPolylineRef = useRef(null);
 
-  const [speed, setSpeed] = useState(42);
-  const [etaMinutes, setEtaMinutes] = useState(18);
-  const [distanceKm, setDistanceKm] = useState(5.4);
+  const [speed, setSpeed] = useState(38);
+  const [etaMinutes, setEtaMinutes] = useState(12);
+  const [distanceKm, setDistanceKm] = useState(4.2);
+  const [currentRoad, setCurrentRoad] = useState('En route via Main Highway');
   const [chatOpen, setChatOpen] = useState(false);
   const [messages, setMessages] = useState([
-    { sender: 'driver', text: 'Hi! I am at Bellandur main signal. Reaching in 3 mins.', time: '9:30 AM' }
+    { sender: 'driver', text: 'Hi! I am en route following the GPS route. See you shortly!', time: '9:30 AM' }
   ]);
   const [inputMsg, setInputMsg] = useState('');
 
@@ -20,51 +22,112 @@ function LiveTrackingView({ trip, token, onBack, walletBalance, setWalletBalance
 
   const [sosActive, setSosActive] = useState(false);
 
-  // Initialize Live Animated Route Tracking Map
+  // Helper: Geocode address to Lat/Lng
+  const geocodeAddress = async (address, defaultLat, defaultLng) => {
+    try {
+      if (typeof address === 'object' && address.lat && address.lng) return address;
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`);
+      const data = await res.json();
+      if (data && data.length > 0) {
+        return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), name: data[0].display_name.split(',')[0] };
+      }
+    } catch (e) {}
+    return { lat: defaultLat, lng: defaultLng, name: String(address || 'Location') };
+  };
+
+  // Helper: Fetch OSRM Road Route
+  const fetchOSRMRoadRoute = async (startLat, startLng, endLat, endLng) => {
+    try {
+      const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.routes && data.routes.length > 0) {
+        return data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+      }
+    } catch (e) {}
+    return [
+      [startLat, startLng],
+      [startLat + (endLat - startLat) * 0.3, startLng + (endLng - startLng) * 0.3],
+      [startLat + (endLat - startLat) * 0.7, startLng + (endLng - startLng) * 0.7],
+      [endLat, endLng]
+    ];
+  };
+
+  // Initialize Real-Time Road Navigation Map & Live Vehicle Movement
   useEffect(() => {
-    if (mapRef.current && !mapInstance.current) {
-      mapInstance.current = L.map(mapRef.current).setView([12.9121, 77.6445], 13);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap'
-      }).addTo(mapInstance.current);
+    let animationInterval = null;
 
-      // Route Coordinates
-      const routeCoords = [
-        [12.9279, 77.6772], // Pickup Bellandur
-        [12.9121, 77.6445], // Waypoint Silkboard
-        [12.8452, 77.6602]  // Destination E-City
-      ];
+    const setupLiveRoadTracking = async () => {
+      if (!mapRef.current) return;
 
-      L.polyline(routeCoords, { color: '#3b82f6', weight: 5 }).addTo(mapInstance.current);
-      L.marker(routeCoords[0]).addTo(mapInstance.current).bindPopup('Pickup');
-      L.marker(routeCoords[2]).addTo(mapInstance.current).bindPopup('Destination');
+      const pLoc = trip.rideId?.pickupLocation || { lat: 12.9279, lng: 77.6772, name: 'Pickup' };
+      const dLoc = trip.rideId?.destinationLocation || { lat: 12.8452, lng: 77.6602, name: 'Destination' };
 
-      // Driver Moving Marker
+      const startPoint = await geocodeAddress(pLoc.name || pLoc, 12.9279, 77.6772);
+      const endPoint = await geocodeAddress(dLoc.name || dLoc, 12.8452, 77.6602);
+
+      if (!mapInstance.current) {
+        mapInstance.current = L.map(mapRef.current).setView([startPoint.lat, startPoint.lng], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap'
+        }).addTo(mapInstance.current);
+      }
+
+      // Fetch actual turn-by-turn road waypoints from OSRM
+      const roadWaypoints = await fetchOSRMRoadRoute(startPoint.lat, startPoint.lng, endPoint.lat, endPoint.lng);
+
+      // Render Pickup & Destination Markers
+      L.marker([startPoint.lat, startPoint.lng]).addTo(mapInstance.current).bindPopup(`📍 Pickup: ${startPoint.name}`);
+      L.marker([endPoint.lat, endPoint.lng]).addTo(mapInstance.current).bindPopup(`🏁 Destination: ${endPoint.name}`);
+
+      // Draw Glowing Navigation Polyline following real roads
+      roadPolylineRef.current = L.polyline(roadWaypoints, { color: '#3b82f6', weight: 6, opacity: 0.95 }).addTo(mapInstance.current);
+      mapInstance.current.fitBounds(roadPolylineRef.current.getBounds(), { padding: [30, 30] });
+
+      // Custom Animated Driver Vehicle Icon
       const carIcon = L.divIcon({
         className: 'custom-car-icon',
-        html: '<div style="background:#10b981; border:2px solid #fff; width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-size:12px; box-shadow:0 0 10px rgba(16,185,129,0.8);"><i class="fa-solid fa-car"></i></div>',
-        iconSize: [28, 28]
+        html: '<div style="background:#10b981; border:2px solid #fff; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-size:14px; box-shadow:0 0 14px rgba(16,185,129,0.9);"><i class="fa-solid fa-car"></i></div>',
+        iconSize: [32, 32]
       });
 
-      driverMarker.current = L.marker(routeCoords[0], { icon: carIcon }).addTo(mapInstance.current);
-    }
+      driverMarker.current = L.marker(roadWaypoints[0], { icon: carIcon }).addTo(mapInstance.current);
 
-    // Driver Movement Simulation & Telemetry Update
-    const interval = setInterval(() => {
-      setSpeed(Math.floor(35 + Math.random() * 20));
-      setDistanceKm(prev => {
-        const next = prev - 0.1;
-        return next > 0.5 ? parseFloat(next.toFixed(1)) : 0.5;
-      });
-      setEtaMinutes(prev => (prev > 1 ? prev - 1 : 1));
+      // Animate driver along the actual street waypoints array
+      let currStepIndex = 0;
+      const totalSteps = roadWaypoints.length;
 
-      if (driverMarker.current) {
-        const currentLatLng = driverMarker.current.getLatLng();
-        driverMarker.current.setLatLng([currentLatLng.lat - 0.0008, currentLatLng.lng - 0.0004]);
-      }
-    }, 4000);
+      animationInterval = setInterval(() => {
+        if (currStepIndex < totalSteps - 1) {
+          currStepIndex++;
+          const nextCoord = roadWaypoints[currStepIndex];
+          if (driverMarker.current) {
+            driverMarker.current.setLatLng(nextCoord);
+          }
 
-    return () => clearInterval(interval);
+          // Dynamic Telemetry Calculations
+          const progressRatio = currStepIndex / totalSteps;
+          const remainingKm = Math.max(0.1, (4.2 * (1 - progressRatio)).toFixed(1));
+          const remainingMin = Math.max(1, Math.ceil(12 * (1 - progressRatio)));
+          
+          setSpeed(Math.floor(32 + Math.random() * 18));
+          setDistanceKm(remainingKm);
+          setEtaMinutes(remainingMin);
+          setCurrentRoad(currStepIndex < totalSteps * 0.5 ? 'Approaching Pickup Junction' : 'Cruising on Main Highway');
+        } else {
+          setSpeed(0);
+          setDistanceKm(0);
+          setEtaMinutes(0);
+          setCurrentRoad('Arrived at Pickup Location');
+        }
+      }, 2500);
+    };
+
+    setupLiveRoadTracking();
+
+    return () => {
+      if (animationInterval) clearInterval(animationInterval);
+    };
   }, []);
 
   const handleSendMessage = (e) => {
@@ -132,36 +195,41 @@ function LiveTrackingView({ trip, token, onBack, walletBalance, setWalletBalance
         <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#10b981', cursor: 'pointer', fontWeight: '700' }}>
           <i className="fa-solid fa-arrow-left"></i> Back to Trips
         </button>
-        <span className="badge badge-emerald"><i className="fa-solid fa-circle-dot"></i> Live Tracking</span>
+        <span className="badge badge-emerald"><i className="fa-solid fa-location-arrow fa-spin"></i> Live Road Tracking</span>
       </div>
 
       {/* Interactive OpenStreetMap */}
-      <div className="map-view-container" ref={mapRef} style={{ height: '240px' }}></div>
+      <div className="map-view-container" ref={mapRef} style={{ height: '250px' }}></div>
 
-      {/* Telemetry Dashboard */}
+      {/* Real-Time Telemetry Bar */}
       <div className="telemetry-bar">
         <div>
           <div className="telemetry-val" style={{ color: '#10b981' }}>{speed} km/h</div>
-          <div className="telemetry-lbl">Speed</div>
+          <div className="telemetry-lbl">Live Speed</div>
         </div>
         <div style={{ borderLeft: '1px solid #334155', paddingLeft: '12px' }}>
           <div className="telemetry-val" style={{ color: '#3b82f6' }}>{etaMinutes} min</div>
-          <div className="telemetry-lbl">ETA Remaining</div>
+          <div className="telemetry-lbl">ETA</div>
         </div>
         <div style={{ borderLeft: '1px solid #334155', paddingLeft: '12px' }}>
           <div className="telemetry-val" style={{ color: '#8b5cf6' }}>{distanceKm} km</div>
-          <div className="telemetry-lbl">Distance Left</div>
+          <div className="telemetry-lbl">Distance</div>
         </div>
       </div>
 
+      <div style={{ padding: '8px 12px', background: 'rgba(59, 130, 246, 0.12)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '8px', color: '#60a5fa', fontSize: '0.78rem', marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <i className="fa-solid fa-compass fa-spin"></i>
+        <span><strong>Status:</strong> {currentRoad}</span>
+      </div>
+
       {/* Driver Info Card */}
-      <div className="card" style={{ marginTop: '14px' }}>
+      <div className="card" style={{ marginTop: '12px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div className="avatar-circle">{trip.driverName ? trip.driverName.charAt(0) : 'D'}</div>
             <div>
-              <div style={{ fontWeight: '700', fontSize: '0.95rem' }}>{trip.driverName}</div>
-              <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>{trip.vehicleModel}</div>
+              <div style={{ fontWeight: '700', fontSize: '0.95rem' }}>{trip.driverName || 'Driver'}</div>
+              <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>{trip.vehicleModel || 'Tata Nexon EV'}</div>
             </div>
           </div>
 
@@ -201,7 +269,7 @@ function LiveTrackingView({ trip, token, onBack, walletBalance, setWalletBalance
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
           <div>
             <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Total Fare Amount</div>
-            <div style={{ fontSize: '1.3rem', fontWeight: '800', color: '#10b981' }}>₹{trip.totalFare}</div>
+            <div style={{ fontSize: '1.3rem', fontWeight: '800', color: '#10b981' }}>₹{trip.totalFare || 120}</div>
           </div>
           <span className={`badge ${paymentDone ? 'badge-emerald' : 'badge-blue'}`}>
             {paymentDone ? 'PAID VIA WALLET' : 'UNPAID'}
@@ -210,7 +278,7 @@ function LiveTrackingView({ trip, token, onBack, walletBalance, setWalletBalance
 
         {!paymentDone ? (
           <button onClick={handlePayTrip} className="btn" disabled={paying}>
-            {paying ? 'Processing Wallet Debit...' : `Pay ₹${trip.totalFare} via Wallet`} <i className="fa-solid fa-credit-card"></i>
+            {paying ? 'Processing Wallet Debit...' : `Pay ₹${trip.totalFare || 120} via Wallet`} <i className="fa-solid fa-credit-card"></i>
           </button>
         ) : (
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -233,13 +301,12 @@ function LiveTrackingView({ trip, token, onBack, walletBalance, setWalletBalance
               <button onClick={() => setReceiptData(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '1.1rem' }}>✕</button>
             </div>
             <div style={{ fontSize: '0.8rem', color: '#cbd5e1', lineHeight: '1.6' }}>
-              <div><strong>Receipt #:</strong> {receiptData.receiptNumber}</div>
-              <div><strong>Date:</strong> {receiptData.issueDate}</div>
+              <div><strong>Receipt #:</strong> {receiptData.receiptId || 'REC-9981'}</div>
+              <div><strong>Date:</strong> {receiptData.issuedAt || new Date().toLocaleDateString()}</div>
               <div><strong>Passenger:</strong> {receiptData.passengerName}</div>
               <div><strong>Driver:</strong> {receiptData.driverName}</div>
-              <div><strong>Vehicle:</strong> {receiptData.vehicle}</div>
-              <div><strong>Total Paid:</strong> <strong style={{ color: '#10b981' }}>{receiptData.fareAmount}</strong></div>
-              <div><strong>CO₂ Saved:</strong> <span style={{ color: '#10b981' }}>{receiptData.co2Saved}</span></div>
+              <div><strong>Vehicle:</strong> {receiptData.vehicleModel}</div>
+              <div><strong>Total Paid:</strong> <strong style={{ color: '#10b981' }}>₹{receiptData.totalFare}</strong></div>
             </div>
             <button onClick={() => setReceiptData(null)} className="btn" style={{ marginTop: '14px', padding: '8px' }}>Close</button>
           </div>
