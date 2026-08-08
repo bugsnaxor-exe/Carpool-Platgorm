@@ -100,14 +100,18 @@ const sendOtp = async (body) => {
 
   otpStore.set(cleanEmail, { otp, expiresAt });
 
-  console.log(`[EMAIL OTP MAILER] Sent verification code "${otp}" to ${cleanEmail}`);
+  // Trigger Real Gmail OTP Delivery via Nodemailer if credentials exist in .env
+  const { sendRealOtpEmail } = require('../utils/emailService');
+  const emailSent = await sendRealOtpEmail(cleanEmail, otp);
 
   return {
     status: 200,
     data: {
       success: true,
-      message: `A 6-digit verification code has been sent to ${cleanEmail}`,
-      debugOtp: otp
+      message: emailSent
+        ? `A 6-digit verification code has been delivered to ${cleanEmail}`
+        : `Verification code generated for ${cleanEmail}. (Configure EMAIL_USER and EMAIL_PASS in .env for real Gmail inbox delivery)`,
+      debugOtp: process.env.NODE_ENV === 'production' && emailSent ? undefined : otp
     }
   };
 };
