@@ -58,13 +58,33 @@ const server = http.createServer(async (req, res) => {
   const pathname = parsedUrl.pathname;
   const method = req.method;
 
-  if (method === 'OPTIONS') {
+  if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
     });
     return res.end();
+  }
+
+  if (pathname === '/api/config/maps-key') {
+    return sendJson(res, 200, { key: process.env.GOOGLE_MAPS_API_KEY || '' });
+  }
+
+  if (pathname === '/maps-loader.js') {
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY || '';
+    const scriptContent = `
+      (function() {
+        if (window.google && window.google.maps) return;
+        var script = document.createElement('script');
+        script.src = 'https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places';
+        script.async = true;
+        script.defer = true;
+        document.head.appendChild(script);
+      })();
+    `;
+    res.writeHead(200, { 'Content-Type': 'text/javascript' });
+    return res.end(scriptContent);
   }
 
   const authHeader = req.headers['authorization'];
