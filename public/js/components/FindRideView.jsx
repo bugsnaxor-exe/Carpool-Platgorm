@@ -5,6 +5,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
   const [destination, setDestination] = useState('Acme Campus, Electronic City');
   const [seats, setSeats] = useState(1);
   const [recurring, setRecurring] = useState(false);
+  const [fetchingGPS, setFetchingGPS] = useState(false);
 
   const [step, setStep] = useState('SEARCH'); // 'SEARCH' or 'RESULTS'
   const [rides, setRides] = useState([]);
@@ -31,6 +32,50 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
       L.polyline([[12.9279, 77.6772], [12.8452, 77.6602]], { color: '#10b981', weight: 4, dashArray: '6, 8' }).addTo(mapInstance.current);
     }
   }, [step]);
+
+  // Actual Real-Time GPS Location Fetching
+  const fetchCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser');
+      return;
+    }
+
+    setFetchingGPS(true);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        try {
+          // Reverse Geocoding via OpenStreetMap API
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+          const data = await res.json();
+          const placeName = data.display_name
+            ? data.display_name.split(',').slice(0, 3).join(',')
+            : `GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
+
+          setPickup(placeName);
+
+          // Pan and place animated marker on Map
+          if (mapInstance.current) {
+            mapInstance.current.setView([latitude, longitude], 14);
+            L.marker([latitude, longitude])
+              .addTo(mapInstance.current)
+              .bindPopup(`📍 Current Location: ${placeName}`)
+              .openPopup();
+          }
+        } catch (err) {
+          setPickup(`Current Location (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
+        } finally {
+          setFetchingGPS(false);
+        }
+      },
+      (error) => {
+        setFetchingGPS(false);
+        alert(`Could not fetch location: ${error.message}`);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
 
   const handleSearchRides = async (e) => {
     e.preventDefault();
@@ -89,12 +134,35 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
               <input type="text" className="input-field" value={pickup} onChange={(e) => setPickup(e.target.value)} required />
             </div>
 
-            {/* Quick Location Shortcuts */}
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-              <button type="button" onClick={() => setPickup('Home (Bellandur)')} style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #334155', background: '#1e293b', color: '#94a3b8', fontSize: '0.78rem' }}>
+            {/* Location Shortcuts & Actual GPS Fetcher */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+              <button 
+                type="button" 
+                onClick={fetchCurrentLocation} 
+                disabled={fetchingGPS}
+                style={{ 
+                  padding: '6px 12px', 
+                  borderRadius: '16px', 
+                  border: '1px solid #10b981', 
+                  background: 'rgba(16, 185, 129, 0.15)', 
+                  color: '#10b981', 
+                  fontSize: '0.78rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <i className={`fa-solid ${fetchingGPS ? 'fa-spinner fa-spin' : 'fa-location-crosshairs'}`}></i> 
+                {fetchingGPS ? 'Fetching GPS...' : 'Use Current GPS'}
+              </button>
+
+              <button type="button" onClick={() => setPickup('Home (Bellandur)')} style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #334155', background: '#1e293b', color: '#94a3b8', fontSize: '0.78rem', cursor: 'pointer' }}>
                 <i className="fa-solid fa-house"></i> Home
               </button>
-              <button type="button" onClick={() => setPickup('Office (Electronic City)')} style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #334155', background: '#1e293b', color: '#94a3b8', fontSize: '0.78rem' }}>
+              
+              <button type="button" onClick={() => setPickup('Office (Electronic City)')} style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #334155', background: '#1e293b', color: '#94a3b8', fontSize: '0.78rem', cursor: 'pointer' }}>
                 <i className="fa-solid fa-building"></i> Office
               </button>
             </div>

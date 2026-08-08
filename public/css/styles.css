@@ -138,14 +138,14 @@ body {
   display: flex;
   flex-direction: column;
   padding-bottom: 70px;
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
 }
 
 .phone-screen::-webkit-scrollbar {
-  width: 4px;
-}
-.phone-screen::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 4px;
+  display: none;
+  width: 0px;
+  background: transparent;
 }
 
 /* BOTTOM NAVIGATION BAR (ANDROID STYLE) */

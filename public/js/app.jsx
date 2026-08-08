@@ -34,12 +34,14 @@ function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        setUser(data.user);
-        setWalletBalance(data.walletBalance);
+        const currentUser = data.user || data;
+        setUser(currentUser);
+        setWalletBalance(Number(data.walletBalance ?? currentUser.walletBalance ?? 500));
         setAppStage('MAIN');
       } else {
         localStorage.removeItem('carpool_token');
         setToken(null);
+        setUser(null);
         setAppStage('AUTH');
       }
     } catch (err) {
@@ -126,7 +128,7 @@ function App() {
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <div style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', padding: '4px 10px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: '700' }}>
-                          ₹{walletBalance.toFixed(0)}
+                          ₹{Number(walletBalance || 0).toFixed(0)}
                         </div>
                         <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '1rem' }} title="Logout">
                           <i className="fa-solid fa-arrow-right-from-bracket"></i>

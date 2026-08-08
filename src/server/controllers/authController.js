@@ -4,7 +4,16 @@ const Wallet = require('../../../models/Wallet');
 const AuditLog = require('../../../models/AuditLog');
 const { hashPassword, verifyPassword, generateToken } = require('../utils/security');
 
+const { isDBConnected } = require('../config/db');
+
 const login = async (body) => {
+  if (!isDBConnected()) {
+    return { 
+      status: 503, 
+      data: { error: 'MongoDB Atlas connection pending. Ensure your IP address is whitelisted in MongoDB Atlas Network Access (0.0.0.0/0).' } 
+    };
+  }
+
   const { identifier, password } = body;
 
   if (!identifier || !password) {
@@ -126,6 +135,13 @@ const register = async (body) => {
 };
 
 const getMe = async (user) => {
+  if (!isDBConnected()) {
+    return { 
+      status: 503, 
+      data: { error: 'MongoDB connection pending. Check your Atlas IP whitelist.' } 
+    };
+  }
+
   if (!user) {
     return { status: 401, data: { error: 'Unauthorized' } };
   }
@@ -140,15 +156,18 @@ const getMe = async (user) => {
   return {
     status: 200,
     data: {
-      _id: dbUser._id.toString(),
-      name: dbUser.name,
-      email: dbUser.email,
-      mobileNumber: dbUser.mobileNumber,
-      role: dbUser.role,
-      organizationId: dbUser.organizationId ? dbUser.organizationId._id.toString() : null,
-      organizationName: dbUser.organizationId ? dbUser.organizationId.name : '',
-      department: dbUser.department,
-      savedPlaces: dbUser.savedPlaces,
+      user: {
+        _id: dbUser._id.toString(),
+        name: dbUser.name,
+        email: dbUser.email,
+        mobileNumber: dbUser.mobileNumber,
+        role: dbUser.role,
+        organizationId: dbUser.organizationId ? dbUser.organizationId._id.toString() : null,
+        organizationName: dbUser.organizationId ? dbUser.organizationId.name : '',
+        department: dbUser.department,
+        savedPlaces: dbUser.savedPlaces,
+        walletBalance: wallet ? wallet.balance : 0
+      },
       walletBalance: wallet ? wallet.balance : 0
     }
   };

@@ -10,23 +10,29 @@ const { hashPassword } = require('../utils/security');
 let isConnected = false;
 
 const connectDB = async () => {
-  if (isConnected) return;
+  if (isConnected) return true;
 
   const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/carpool';
   console.log(`[DB Connector] Connecting to MongoDB: ${uri.replace(/\/\/([^:]+):([^@]+)@/, '//$1:****@')}`);
 
   try {
     await mongoose.connect(uri, {
-      serverSelectionTimeoutMS: 5000
+      serverSelectionTimeoutMS: 4000, // 4-second fast timeout
+      connectTimeoutMS: 5000
     });
     isConnected = true;
     console.log(`[DB Connector] Successfully connected to MongoDB Database!`);
     await seedDatabaseIfNeeded();
+    return true;
   } catch (error) {
+    isConnected = false;
     console.error(`[DB Connector] MongoDB Connection Error: ${error.message}`);
-    console.warn(`[DB Connector] Ensure your MONGODB_URI in .env is valid or a local MongoDB server is running.`);
+    console.warn(`[DB Connector] IMPORTANT: Ensure your IP address is whitelisted in MongoDB Atlas Network Access (0.0.0.0/0).`);
+    return false;
   }
 };
+
+const isDBConnected = () => isConnected && mongoose.connection.readyState === 1;
 
 const seedDatabaseIfNeeded = async () => {
   try {
@@ -127,4 +133,4 @@ const seedDatabaseIfNeeded = async () => {
   }
 };
 
-module.exports = { connectDB };
+module.exports = { connectDB, isDBConnected };
