@@ -137,7 +137,7 @@ function App() {
                     </div>
 
                     {/* Active Mobile Screen Tab */}
-                    <div style={{ padding: '16px', flex: 1, overflowY: 'auto' }}>
+                    <div className="mobile-content-area">
                       {activeTab === 'FIND' && <FindRideView token={token} walletBalance={walletBalance} setWalletBalance={setWalletBalance} setActiveTab={setActiveTab} />}
                       {activeTab === 'OFFER' && <OfferRideView token={token} setActiveTab={setActiveTab} />}
                       {activeTab === 'TRIPS' && <MyTripsView token={token} walletBalance={walletBalance} setWalletBalance={setWalletBalance} />}
