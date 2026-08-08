@@ -2,9 +2,9 @@ const { useState, useEffect, useRef } = React;
 
 function LiveTrackingView({ trip, token, onBack, walletBalance, setWalletBalance }) {
   const mapRef = useRef(null);
-  const mapInstance = useRef(null);
-  const driverMarker = useRef(null);
-  const roadPolylineRef = useRef(null);
+  const googleMapRef = useRef(null);
+  const driverMarkerRef = useRef(null);
+  const polylineRef = useRef(null);
 
   const [speed, setSpeed] = useState(38);
   const [etaMinutes, setEtaMinutes] = useState(12);
@@ -42,22 +42,22 @@ function LiveTrackingView({ trip, token, onBack, walletBalance, setWalletBalance
       const res = await fetch(url);
       const data = await res.json();
       if (data.routes && data.routes.length > 0) {
-        return data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+        return data.routes[0].geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
       }
     } catch (e) {}
     return [
-      [startLat, startLng],
-      [startLat + (endLat - startLat) * 0.3, startLng + (endLng - startLng) * 0.3],
-      [startLat + (endLat - startLat) * 0.7, startLng + (endLng - startLng) * 0.7],
-      [endLat, endLng]
+      { lat: startLat, lng: startLng },
+      { lat: startLat + (endLat - startLat) * 0.3, lng: startLng + (endLng - startLng) * 0.3 },
+      { lat: startLat + (endLat - startLat) * 0.7, lng: startLng + (endLng - startLng) * 0.7 },
+      { lat: endLat, lng: endLng }
     ];
   };
 
-  // Initialize Real-Time Road Navigation Map & Live Vehicle Movement
+  // Initialize Official Google Maps Live Tracking & Driver Movement
   useEffect(() => {
     let animationInterval = null;
 
-    const setupLiveRoadTracking = async () => {
+    const setupLiveGoogleMapTracking = async () => {
       if (!mapRef.current) return;
 
       const pLoc = trip.rideId?.pickupLocation || { lat: 12.9279, lng: 77.6772, name: 'Pickup' };
@@ -66,64 +66,96 @@ function LiveTrackingView({ trip, token, onBack, walletBalance, setWalletBalance
       const startPoint = await geocodeAddress(pLoc.name || pLoc, 12.9279, 77.6772);
       const endPoint = await geocodeAddress(dLoc.name || dLoc, 12.8452, 77.6602);
 
-      if (!mapInstance.current) {
-        mapInstance.current = L.map(mapRef.current).setView([startPoint.lat, startPoint.lng], 13);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '© OpenStreetMap'
-        }).addTo(mapInstance.current);
-      }
+      // Google Maps Dark Theme Canvas
+      const darkStyle = [
+        { elementType: 'geometry', stylers: [{ color: '#1d2c4d' }] },
+        { elementType: 'labels.text.fill', stylers: [{ color: '#8ec3b9' }] },
+        { elementType: 'labels.text.stroke', stylers: [{ color: '#1a3646' }] },
+        { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#304a7d' }] },
+        { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] }
+      ];
 
-      // Fetch actual turn-by-turn road waypoints from OSRM
-      const roadWaypoints = await fetchOSRMRoadRoute(startPoint.lat, startPoint.lng, endPoint.lat, endPoint.lng);
+      if (typeof window.google !== 'undefined' && window.google.maps) {
+        googleMapRef.current = new window.google.maps.Map(mapRef.current, {
+          center: { lat: startPoint.lat, lng: startPoint.lng },
+          zoom: 13,
+          styles: darkStyle,
+          disableDefaultUI: true
+        });
 
-      // Render Pickup & Destination Markers
-      L.marker([startPoint.lat, startPoint.lng]).addTo(mapInstance.current).bindPopup(`📍 Pickup: ${startPoint.name}`);
-      L.marker([endPoint.lat, endPoint.lng]).addTo(mapInstance.current).bindPopup(`🏁 Destination: ${endPoint.name}`);
+        const roadWaypoints = await fetchOSRMRoadRoute(startPoint.lat, startPoint.lng, endPoint.lat, endPoint.lng);
 
-      // Draw Glowing Navigation Polyline following real roads
-      roadPolylineRef.current = L.polyline(roadWaypoints, { color: '#3b82f6', weight: 6, opacity: 0.95 }).addTo(mapInstance.current);
-      mapInstance.current.fitBounds(roadPolylineRef.current.getBounds(), { padding: [30, 30] });
+        // Pickup & Destination Markers
+        new window.google.maps.Marker({
+          position: { lat: startPoint.lat, lng: startPoint.lng },
+          map: googleMapRef.current,
+          title: `📍 Pickup: ${startPoint.name}`
+        });
 
-      // Custom Animated Driver Vehicle Icon
-      const carIcon = L.divIcon({
-        className: 'custom-car-icon',
-        html: '<div style="background:#10b981; border:2px solid #fff; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-size:14px; box-shadow:0 0 14px rgba(16,185,129,0.9);"><i class="fa-solid fa-car"></i></div>',
-        iconSize: [32, 32]
-      });
+        new window.google.maps.Marker({
+          position: { lat: endPoint.lat, lng: endPoint.lng },
+          map: googleMapRef.current,
+          title: `🏁 Destination: ${endPoint.name}`
+        });
 
-      driverMarker.current = L.marker(roadWaypoints[0], { icon: carIcon }).addTo(mapInstance.current);
+        // Navigation Route Polyline
+        polylineRef.current = new window.google.maps.Polyline({
+          path: roadWaypoints,
+          geodesic: true,
+          strokeColor: '#3b82f6',
+          strokeOpacity: 0.95,
+          strokeWeight: 6,
+          map: googleMapRef.current
+        });
 
-      // Animate driver along the actual street waypoints array
-      let currStepIndex = 0;
-      const totalSteps = roadWaypoints.length;
+        const bounds = new window.google.maps.LatLngBounds();
+        roadWaypoints.forEach(pt => bounds.extend(pt));
+        googleMapRef.current.fitBounds(bounds);
 
-      animationInterval = setInterval(() => {
-        if (currStepIndex < totalSteps - 1) {
-          currStepIndex++;
-          const nextCoord = roadWaypoints[currStepIndex];
-          if (driverMarker.current) {
-            driverMarker.current.setLatLng(nextCoord);
+        // Animated Driver Vehicle Marker
+        driverMarkerRef.current = new window.google.maps.Marker({
+          position: roadWaypoints[0],
+          map: googleMapRef.current,
+          icon: {
+            path: window.google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+            scale: 6,
+            fillColor: '#10b981',
+            fillOpacity: 1,
+            strokeColor: '#ffffff',
+            strokeWeight: 2
           }
+        });
 
-          // Dynamic Telemetry Calculations
-          const progressRatio = currStepIndex / totalSteps;
-          const remainingKm = Math.max(0.1, (4.2 * (1 - progressRatio)).toFixed(1));
-          const remainingMin = Math.max(1, Math.ceil(12 * (1 - progressRatio)));
-          
-          setSpeed(Math.floor(32 + Math.random() * 18));
-          setDistanceKm(remainingKm);
-          setEtaMinutes(remainingMin);
-          setCurrentRoad(currStepIndex < totalSteps * 0.5 ? 'Approaching Pickup Junction' : 'Cruising on Main Highway');
-        } else {
-          setSpeed(0);
-          setDistanceKm(0);
-          setEtaMinutes(0);
-          setCurrentRoad('Arrived at Pickup Location');
-        }
-      }, 2500);
+        let currStepIndex = 0;
+        const totalSteps = roadWaypoints.length;
+
+        animationInterval = setInterval(() => {
+          if (currStepIndex < totalSteps - 1) {
+            currStepIndex++;
+            const nextCoord = roadWaypoints[currStepIndex];
+            if (driverMarkerRef.current) {
+              driverMarkerRef.current.setPosition(nextCoord);
+            }
+
+            const progressRatio = currStepIndex / totalSteps;
+            const remainingKm = Math.max(0.1, (4.2 * (1 - progressRatio)).toFixed(1));
+            const remainingMin = Math.max(1, Math.ceil(12 * (1 - progressRatio)));
+
+            setSpeed(Math.floor(32 + Math.random() * 18));
+            setDistanceKm(remainingKm);
+            setEtaMinutes(remainingMin);
+            setCurrentRoad(currStepIndex < totalSteps * 0.5 ? 'Approaching Pickup Junction' : 'Cruising on Main Highway');
+          } else {
+            setSpeed(0);
+            setDistanceKm(0);
+            setEtaMinutes(0);
+            setCurrentRoad('Arrived at Pickup Location');
+          }
+        }, 2500);
+      }
     };
 
-    setupLiveRoadTracking();
+    setupLiveGoogleMapTracking();
 
     return () => {
       if (animationInterval) clearInterval(animationInterval);
@@ -195,10 +227,10 @@ function LiveTrackingView({ trip, token, onBack, walletBalance, setWalletBalance
         <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#10b981', cursor: 'pointer', fontWeight: '700' }}>
           <i className="fa-solid fa-arrow-left"></i> Back to Trips
         </button>
-        <span className="badge badge-emerald"><i className="fa-solid fa-location-arrow fa-spin"></i> Live Road Tracking</span>
+        <span className="badge badge-emerald"><i className="fa-solid fa-location-arrow fa-spin"></i> Google Maps Live Tracking</span>
       </div>
 
-      {/* Interactive OpenStreetMap */}
+      {/* Interactive Google Map Container */}
       <div className="map-view-container" ref={mapRef} style={{ height: '250px' }}></div>
 
       {/* Real-Time Telemetry Bar */}
