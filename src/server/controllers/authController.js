@@ -3,8 +3,10 @@ const Organization = require('../../../models/Organization');
 const Wallet = require('../../../models/Wallet');
 const AuditLog = require('../../../models/AuditLog');
 const { hashPassword, verifyPassword, generateToken } = require('../utils/security');
-
 const { isDBConnected } = require('../config/db');
+
+// In-Memory OTP Store (email -> { otp, expiresAt })
+const otpStore = new Map();
 
 const login = async (body) => {
   if (!isDBConnected()) {
@@ -72,6 +74,77 @@ const login = async (body) => {
       token
     }
   };
+};
+
+const sendOtp = async (body) => {
+  if (!isDBConnected()) {
+    return { status: 503, data: { error: 'MongoDB connection pending.' } };
+  }
+
+  const { email } = body;
+  if (!email || !email.includes('@')) {
+    return { status: 400, data: { error: 'A valid email address is required to receive verification OTP.' } };
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+
+  // Check if user already exists
+  const existingUser = await User.findOne({ email: cleanEmail });
+  if (existingUser) {
+    return { status: 400, data: { error: `An account with email "${cleanEmail}" already exists. Please sign in instead.` } };
+  }
+
+  // Generate 6-digit numeric OTP (e.g. 482915)
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
+
+  otpStore.set(cleanEmail, { otp, expiresAt });
+
+  console.log(`[EMAIL OTP MAILER] Sent verification code "${otp}" to ${cleanEmail}`);
+
+  return {
+    status: 200,
+    data: {
+      success: true,
+      message: `A 6-digit verification code has been sent to ${cleanEmail}`,
+      debugOtp: otp
+    }
+  };
+};
+
+const verifyOtpAndRegister = async (body) => {
+  if (!isDBConnected()) {
+    return { status: 503, data: { error: 'MongoDB connection pending.' } };
+  }
+
+  const { email, otp } = body;
+
+  if (!email || !otp) {
+    return { status: 400, data: { error: 'Email and OTP verification code are required' } };
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const submittedOtp = String(otp).trim();
+
+  const record = otpStore.get(cleanEmail);
+  if (!record) {
+    return { status: 400, data: { error: 'No verification code found for this email. Please tap Resend OTP.' } };
+  }
+
+  if (Date.now() > record.expiresAt) {
+    otpStore.delete(cleanEmail);
+    return { status: 400, data: { error: 'Verification code has expired. Please tap Resend OTP.' } };
+  }
+
+  if (record.otp !== submittedOtp) {
+    return { status: 400, data: { error: 'Invalid OTP code. Please check the code and try again.' } };
+  }
+
+  // OTP validated! Remove from store
+  otpStore.delete(cleanEmail);
+
+  // Complete registration & DB insertion
+  return await register(body);
 };
 
 const register = async (body) => {
@@ -192,4 +265,4 @@ const getMe = async (user) => {
   };
 };
 
-module.exports = { login, register, getMe };
+module.exports = { login, sendOtp, verifyOtpAndRegister, register, getMe };

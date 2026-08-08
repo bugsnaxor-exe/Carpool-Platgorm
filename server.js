@@ -104,6 +104,16 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, result.status, result.data);
     }
 
+    if (pathname === '/api/auth/send-otp' && method === 'POST') {
+      const result = await authController.sendOtp(await parseBody(req));
+      return sendJson(res, result.status, result.data);
+    }
+
+    if (pathname === '/api/auth/verify-otp-register' && method === 'POST') {
+      const result = await authController.verifyOtpAndRegister(await parseBody(req));
+      return sendJson(res, result.status, result.data);
+    }
+
     if (pathname === '/api/auth/register' && method === 'POST') {
       const result = await authController.register(await parseBody(req));
       return sendJson(res, result.status, result.data);
