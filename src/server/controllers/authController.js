@@ -206,12 +206,17 @@ const register = async (body) => {
   const newUser = await User.create({
     name: name.trim(),
     email: email.trim().toLowerCase(),
-    mobileNumber: mobileNumber ? mobileNumber.trim() : '',
+    mobileNumber: mobileNumber ? mobileNumber.trim() : (cleanEmail ? `+9198000${Math.floor(10000 + Math.random() * 90000)}` : ''),
+    phone: mobileNumber ? mobileNumber.trim() : (cleanEmail ? `+9198000${Math.floor(10000 + Math.random() * 90000)}` : ''),
     password: hashPassword(password),
     role: role || 'EMPLOYEE',
     organizationId: org._id,
     department: department || 'Engineering',
-    savedPlaces: []
+    wallet: 500,
+    savedPlaces: [],
+    emailVerified: true,
+    phoneVerified: true,
+    status: 'ACTIVE'
   });
 
   await Wallet.create({ userId: newUser._id, balance: 500 });

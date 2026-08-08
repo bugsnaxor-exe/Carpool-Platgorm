@@ -29,11 +29,14 @@ const bookTrip = async (user, body) => {
     rideId: ride._id,
     passengerId: user._id,
     driverId: ride.driverId,
-    organizationId: dbUser.organizationId,
+    organizationId: dbUser ? dbUser.organizationId : null,
     seatsBooked: Number(seatsBooked),
     totalFare,
+    fareDetails: totalFare,
     status: 'BOOKED',
-    paymentStatus: 'UNPAID',
+    tripStatus: 'Scheduled',
+    paymentStatus: 'Pending',
+    paymentMethod: body.paymentMethod || 'UPI',
     sosAlerts: []
   });
 
