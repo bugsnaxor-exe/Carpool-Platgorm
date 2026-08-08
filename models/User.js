@@ -1,11 +1,11 @@
 const mongoose = require('mongoose');
 
-// Saved Commute Location Sub-Schema
+// Saved Commute Location Sub-Schema (Backend2 & Platform Compatible)
 const savedPlaceSchema = new mongoose.Schema({
-  label: { type: String, required: true, trim: true }, // e.g. "Home", "HQ Office", "Gym"
-  address: { type: String, required: true, trim: true },
-  lat: { type: Number, required: true },
-  lng: { type: Number, required: true },
+  label: { type: String, trim: true },
+  address: { type: String, trim: true },
+  lat: { type: mongoose.Schema.Types.Mixed }, // Supports both Number and String from Backend2
+  lng: { type: mongoose.Schema.Types.Mixed },
   isDefault: { type: Boolean, default: false }
 });
 
@@ -19,15 +19,23 @@ const preferenceSchema = new mongoose.Schema({
   quietRide: { type: Boolean, default: false }
 });
 
-// Comprehensive User Credentials & Enterprise Values Schema
+// User Schema (Merged Backend2 & Carpool Enterprise Schema)
 const userSchema = new mongoose.Schema(
   {
-    // Credentials & Authentication Values
+    // Credentials & Authentication Values (Backend2 & Enterprise)
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
     mobileNumber: { type: String, required: true, unique: true, trim: true, index: true },
-    password: { type: String, required: true }, // Scrypt Salted Password Hash
+    phone: { type: String, trim: true }, // Backend2 Field Alias
+    password: { type: String, required: true }, // Hashed Password
     
+    // OTP Fields (Backend2 & Email Service)
+    otp: { type: String },
+    otpExpires: { type: Date },
+
+    // Wallet Balance (Backend2 Direct Field)
+    wallet: { type: Number, default: 1250 },
+
     // Verification & Enhanced Login Tracking Fields
     emailVerified: { type: Boolean, default: true },
     phoneVerified: { type: Boolean, default: true },
@@ -44,14 +52,14 @@ const userSchema = new mongoose.Schema(
       default: 'EMAIL_OTP' 
     },
 
-    // Corporate & Employee Values
+    // Corporate & Employee Values (Backend2: "Employee" | "Admin" | "COMPANY_ADMIN")
     employeeId: { type: String, trim: true },
     role: { 
       type: String, 
-      enum: ['COMPANY_ADMIN', 'EMPLOYEE', 'DRIVER_MANAGER'], 
+      enum: ['COMPANY_ADMIN', 'EMPLOYEE', 'Employee', 'Admin', 'DRIVER_MANAGER'], 
       default: 'EMPLOYEE' 
     },
-    organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
+    organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: false, index: true },
     department: { type: String, default: 'General', trim: true },
     designation: { type: String, default: 'Team Member', trim: true },
 
@@ -65,7 +73,7 @@ const userSchema = new mongoose.Schema(
     rating: { type: Number, default: 5.0, min: 1.0, max: 5.0 },
     totalRidesCount: { type: Number, default: 0 },
     
-    // Preferences & Locations
+    // Preferences & Saved Places
     preferences: { type: preferenceSchema, default: () => ({}) },
     savedPlaces: [savedPlaceSchema],
 
@@ -81,10 +89,22 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// Helper method to strip sensitive credentials (like hashed password) when returning User objects
+// Pre-save hook: ensure phone & mobileNumber stay in sync
+userSchema.pre('save', function (next) {
+  if (this.mobileNumber && !this.phone) {
+    this.phone = this.mobileNumber;
+  } else if (this.phone && !this.mobileNumber) {
+    this.mobileNumber = this.phone;
+  }
+  next();
+});
+
+// Helper method to strip sensitive credentials
 userSchema.methods.toPublicJSON = function () {
   const obj = this.toObject();
   delete obj.password;
+  delete obj.otp;
+  delete obj.otpExpires;
   return obj;
 };
 
