@@ -205,7 +205,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
         gPolylineRef.current = new window.google.maps.Polyline({
           path: gPath,
           geodesic: true,
-          strokeColor: '#10b981',
+          strokeColor: '#003366',
           strokeOpacity: 0.95,
           strokeWeight: 5,
           map: googleMapRef.current
@@ -228,7 +228,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
       pickupMarkerRef.current = L.marker([startLoc.lat, startLoc.lng]).addTo(mapInstance.current).bindPopup(`📍 Pickup: ${startLoc.name}`);
       destMarkerRef.current = L.marker([endLoc.lat, endLoc.lng]).addTo(mapInstance.current).bindPopup(`🏁 Destination: ${endLoc.name}`);
 
-      routePolylineRef.current = L.polyline(roadWaypoints, { color: '#10b981', weight: 5, opacity: 0.95 }).addTo(mapInstance.current);
+      routePolylineRef.current = L.polyline(roadWaypoints, { color: '#003366', weight: 5, opacity: 0.95 }).addTo(mapInstance.current);
       mapInstance.current.fitBounds(routePolylineRef.current.getBounds(), { padding: [35, 35] });
     }
 
@@ -326,18 +326,24 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
       // 1. Try Official Google Maps Canvas
       if (typeof window.google !== 'undefined' && window.google.maps) {
         try {
-          const darkStyle = [
-            { elementType: 'geometry', stylers: [{ color: '#1d2c4d' }] },
-            { elementType: 'labels.text.fill', stylers: [{ color: '#8ec3b9' }] },
-            { elementType: 'labels.text.stroke', stylers: [{ color: '#1a3646' }] },
-            { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#304a7d' }] },
-            { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] }
+          const beigeMapStyle = [
+            { elementType: "geometry", stylers: [{ color: "#f5f3ed" }] },
+            { elementType: "labels.text.fill", stylers: [{ color: "#003366" }] },
+            { elementType: "labels.text.stroke", stylers: [{ color: "#f5f3ed" }] },
+            { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#003366" }] },
+            { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#003366" }] },
+            { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#d2ebd0" }] },
+            { featureType: "poi.park", elementType: "labels.text.fill", stylers: [{ color: "#4f7754" }] },
+            { featureType: "road", elementType: "geometry", stylers: [{ color: "#ffffff" }] },
+            { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#d6d2c4" }] },
+            { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#e4dfce" }] },
+            { featureType: "water", elementType: "geometry", stylers: [{ color: "#b9d3c2" }] }
           ];
 
           googleMapRef.current = new window.google.maps.Map(mapRef.current, {
             center: { lat: pickupLocRef.current.lat, lng: pickupLocRef.current.lng },
             zoom: 12,
-            styles: darkStyle,
+            styles: beigeMapStyle,
             disableDefaultUI: true
           });
 

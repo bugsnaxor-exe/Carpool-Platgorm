@@ -117,21 +117,17 @@ function App() {
 
                 {appStage === 'MAIN' && user && (
                   <>
-                    {/* Top App Header */}
-                    <div style={{ padding: '16px 16px 8px 16px', background: '#0f172a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1e293b' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div className="avatar-circle">{user.name.charAt(0)}</div>
-                        <div>
-                          <div style={{ fontSize: '0.9rem', fontWeight: '700' }}>{user.name}</div>
-                          <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{user.role === 'COMPANY_ADMIN' ? 'Admin' : 'Employee'}</div>
-                        </div>
+                    {/* Minimal Warm Header */}
+                    <div className="phone-header">
+                      <div className="user-greeting">
+                        Hello, <strong>{user ? user.name.split(' ')[0] : 'User'}</strong>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <div style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', padding: '4px 10px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: '700' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ background: 'rgba(0, 51, 102, 0.08)', color: '#003366', padding: '4px 10px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: '800' }}>
                           ₹{Number(walletBalance || 0).toFixed(0)}
                         </div>
-                        <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '1rem' }} title="Logout">
-                          <i className="fa-solid fa-arrow-right-from-bracket"></i>
+                        <button className="avatar-icon-btn" onClick={handleLogout} title="Logout">
+                          <i className="fa-regular fa-user"></i>
                         </button>
                       </div>
                     </div>

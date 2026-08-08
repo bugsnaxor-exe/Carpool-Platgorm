@@ -66,20 +66,25 @@ function LiveTrackingView({ trip, token, onBack, walletBalance, setWalletBalance
       const startPoint = await geocodeAddress(pLoc.name || pLoc, 12.9279, 77.6772);
       const endPoint = await geocodeAddress(dLoc.name || dLoc, 12.8452, 77.6602);
 
-      // Google Maps Dark Theme Canvas
-      const darkStyle = [
-        { elementType: 'geometry', stylers: [{ color: '#1d2c4d' }] },
-        { elementType: 'labels.text.fill', stylers: [{ color: '#8ec3b9' }] },
-        { elementType: 'labels.text.stroke', stylers: [{ color: '#1a3646' }] },
-        { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#304a7d' }] },
-        { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] }
+      const beigeMapStyle = [
+        { elementType: "geometry", stylers: [{ color: "#f5f3ed" }] },
+        { elementType: "labels.text.fill", stylers: [{ color: "#003366" }] },
+        { elementType: "labels.text.stroke", stylers: [{ color: "#f5f3ed" }] },
+        { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#003366" }] },
+        { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#003366" }] },
+        { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#d2ebd0" }] },
+        { featureType: "poi.park", elementType: "labels.text.fill", stylers: [{ color: "#4f7754" }] },
+        { featureType: "road", elementType: "geometry", stylers: [{ color: "#ffffff" }] },
+        { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#d6d2c4" }] },
+        { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#e4dfce" }] },
+        { featureType: "water", elementType: "geometry", stylers: [{ color: "#b9d3c2" }] }
       ];
 
       if (typeof window.google !== 'undefined' && window.google.maps) {
         googleMapRef.current = new window.google.maps.Map(mapRef.current, {
           center: { lat: startPoint.lat, lng: startPoint.lng },
           zoom: 13,
-          styles: darkStyle,
+          styles: beigeMapStyle,
           disableDefaultUI: true
         });
 
