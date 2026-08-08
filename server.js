@@ -117,6 +117,18 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, result.status, result.data);
   }
 
+  if (pathname.startsWith('/api/trips/') && pathname.endsWith('/sos') && method === 'POST') {
+    const tripId = pathname.split('/')[3];
+    const result = tripController.triggerSOS(user, tripId, await parseBody(req));
+    return sendJson(res, result.status, result.data);
+  }
+
+  if (pathname.startsWith('/api/trips/') && pathname.endsWith('/receipt') && method === 'GET') {
+    const tripId = pathname.split('/')[3];
+    const result = tripController.getReceipt(user, tripId);
+    return sendJson(res, result.status, result.data);
+  }
+
   if (pathname === '/api/wallet/balance' && method === 'GET') {
     const result = walletController.getWallet(user);
     return sendJson(res, result.status, result.data);
@@ -174,7 +186,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`====================================================`);
   console.log(` MODULAR CARPOOL PLATFORM RUNNING ON PORT ${PORT}`);
-  console.log(` Modular Architecture: Security, Auth, Ride, Trip, Wallet, Admin`);
+  console.log(` Endpoints: Auth, Rides, Trips, SOS, Wallet, Receipts, Admin`);
   console.log(` Ready at http://localhost:${PORT}`);
   console.log(`====================================================`);
 });
