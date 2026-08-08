@@ -75,10 +75,18 @@ const server = http.createServer(async (req, res) => {
     const apiKey = process.env.GOOGLE_MAPS_API_KEY || '';
     const scriptContent = `
       (function() {
-        if (window.google && window.google.maps) return;
-        var script = document.createElement('script');
-        script.src = 'https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places';
-        document.head.appendChild(script);
+        try {
+          if (window.google && window.google.maps) return;
+          var script = document.createElement('script');
+          script.src = 'https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places';
+          script.async = true;
+          script.onerror = function() {
+            console.warn("Google Maps script failed to load. Platform will use Leaflet map fallback.");
+          };
+          document.head.appendChild(script);
+        } catch(e) {
+          console.warn("Google Maps loader exception:", e);
+        }
       })();
     `;
     res.writeHead(200, { 'Content-Type': 'text/javascript' });

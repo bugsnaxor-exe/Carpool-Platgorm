@@ -552,7 +552,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
           {routeInfo.distanceKm !== null && (
             <div style={{
               display: 'flex',
-              justify: 'center',
+              justifyContent: 'center',
               alignItems: 'center',
               gap: '10px',
               background: '#FFFFFF',

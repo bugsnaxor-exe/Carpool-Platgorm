@@ -30,7 +30,23 @@
   <script src="/maps-loader.js"></script>
 </head>
 <body>
-  <div id="root"></div>
+  <div id="root">
+    <div style="height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #FAF7F2; color: #0D6E42; font-family: sans-serif;">
+      <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 2.2rem; margin-bottom: 14px;"></i>
+      <div style="font-weight: 800; font-size: 1.15rem;">Loading Carpool Platform...</div>
+    </div>
+  </div>
+
+  <script>
+    window.onerror = function(msg, url, lineNo, columnNo, error) {
+      console.error('GLOBAL ERROR:', msg, url, lineNo, error);
+      var root = document.getElementById('root');
+      if (root && root.innerHTML.indexOf('Loading Carpool') !== -1) {
+        root.innerHTML = '<div style="padding:30px; color:#c0392b; font-family:sans-serif; text-align:center;"><h3>App Loading Notice</h3><p>' + msg + '</p><button onclick="location.reload()" style="padding:8px 16px; background:#0D6E42; color:#fff; border:none; border-radius:8px; cursor:pointer;">Refresh Page</button></div>';
+      }
+      return false;
+    };
+  </script>
 
   <!-- Modular React Component Scripts -->
   <script type="text/babel" src="/js/components/SplashScreen.jsx"></script>
