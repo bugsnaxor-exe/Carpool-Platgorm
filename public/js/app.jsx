@@ -123,7 +123,7 @@ function App() {
                         Hello, <strong>{user ? user.name.split(' ')[0] : 'User'}</strong>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div style={{ background: 'rgba(0, 51, 102, 0.08)', color: '#003366', padding: '4px 10px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: '800' }}>
+                        <div style={{ background: 'rgba(13, 110, 66, 0.1)', color: '#0D6E42', padding: '5px 12px', borderRadius: '20px', fontSize: '0.82rem', fontWeight: '800', border: '1px solid rgba(13, 110, 66, 0.2)' }}>
                           ₹{Number(walletBalance || 0).toFixed(0)}
                         </div>
                         <button className="avatar-icon-btn" onClick={handleLogout} title="Logout">

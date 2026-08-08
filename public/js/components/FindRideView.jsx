@@ -205,7 +205,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
         gPolylineRef.current = new window.google.maps.Polyline({
           path: gPath,
           geodesic: true,
-          strokeColor: '#003366',
+          strokeColor: '#0D6E42',
           strokeOpacity: 0.95,
           strokeWeight: 5,
           map: googleMapRef.current
@@ -228,7 +228,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
       pickupMarkerRef.current = L.marker([startLoc.lat, startLoc.lng]).addTo(mapInstance.current).bindPopup(`📍 Pickup: ${startLoc.name}`);
       destMarkerRef.current = L.marker([endLoc.lat, endLoc.lng]).addTo(mapInstance.current).bindPopup(`🏁 Destination: ${endLoc.name}`);
 
-      routePolylineRef.current = L.polyline(roadWaypoints, { color: '#003366', weight: 5, opacity: 0.95 }).addTo(mapInstance.current);
+      routePolylineRef.current = L.polyline(roadWaypoints, { color: '#0D6E42', weight: 5, opacity: 0.95 }).addTo(mapInstance.current);
       mapInstance.current.fitBounds(routePolylineRef.current.getBounds(), { padding: [35, 35] });
     }
 
@@ -538,12 +538,12 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
           <div style={{ position: 'relative' }}>
             <div className="map-view-container" ref={mapRef}></div>
             {routingLoading ? (
-              <div style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(15, 23, 42, 0.85)', padding: '6px 12px', borderRadius: '12px', color: '#10b981', fontSize: '0.78rem', fontWeight: '700', zIndex: 500 }}>
-                <i className="fa-solid fa-spinner fa-spin"></i> Calculating Distance & Route...
+              <div style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(5, 59, 34, 0.9)', padding: '6px 14px', borderRadius: '20px', color: '#FFFFFF', fontSize: '0.78rem', fontWeight: '700', zIndex: 500, boxShadow: '0 4px 15px rgba(0,0,0,0.15)' }}>
+                <i className="fa-solid fa-spinner fa-spin"></i> Calculating Route...
               </div>
             ) : (
-              <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'rgba(15, 23, 42, 0.85)', padding: '5px 10px', borderRadius: '12px', color: '#cbd5e1', fontSize: '0.72rem', fontWeight: '600', zIndex: 500 }}>
-                <i className="fa-solid fa-hand-pointer" style={{ color: '#10b981' }}></i> Click map to drop pin
+              <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'rgba(255, 255, 255, 0.92)', padding: '6px 12px', borderRadius: '20px', color: '#0D6E42', fontSize: '0.74rem', fontWeight: '700', zIndex: 500, border: '1px solid #E8E1D3', boxShadow: '0 2px 10px rgba(0,0,0,0.06)' }}>
+                <i className="fa-solid fa-hand-pointer" style={{ color: '#0D6E42' }}></i> Click map to drop pin
               </div>
             )}
           </div>
@@ -555,17 +555,17 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
               justify: 'center',
               alignItems: 'center',
               gap: '10px',
-              background: '#0f172a',
-              border: '1px solid #10b981',
-              borderRadius: '12px',
-              padding: '10px 14px',
-              marginTop: '12px',
-              marginBottom: '14px',
-              boxShadow: '0 4px 15px rgba(0,0,0,0.5)'
+              background: '#FFFFFF',
+              border: '1px solid #0D6E42',
+              borderRadius: '14px',
+              padding: '12px 16px',
+              marginTop: '14px',
+              marginBottom: '16px',
+              boxShadow: '0 4px 18px rgba(13, 110, 66, 0.12)'
             }}>
-              <i className="fa-solid fa-route" style={{ color: '#10b981', fontSize: '1.2rem' }}></i>
-              <span style={{ fontSize: '0.85rem', color: '#cbd5e1', fontWeight: '600' }}>Road Distance:</span>
-              <span style={{ fontSize: '1.15rem', fontWeight: '800', color: '#10b981' }}>{routeInfo.distanceKm} km</span>
+              <i className="fa-solid fa-route" style={{ color: '#0D6E42', fontSize: '1.25rem' }}></i>
+              <span style={{ fontSize: '0.88rem', color: '#5D7063', fontWeight: '600' }}>Road Distance:</span>
+              <span style={{ fontSize: '1.2rem', fontWeight: '800', color: '#0D6E42' }}>{routeInfo.distanceKm} km</span>
             </div>
           )}
 
