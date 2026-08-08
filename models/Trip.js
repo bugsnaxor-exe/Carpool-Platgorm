@@ -1,65 +1,61 @@
 const mongoose = require('mongoose');
 
-const sosAlertSchema = new mongoose.Schema({
-  triggeredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  lat: { type: Number },
-  lng: { type: Number },
-  timestamp: { type: Date, default: Date.now }
-}, { strict: false });
-
 const tripSchema = new mongoose.Schema(
   {
-    rideId: { type: mongoose.Schema.Types.ObjectId, ref: 'Ride', required: true },
-    passengerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    driverId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization' },
-    
-    seatsBooked: { type: Number, default: 1 },
+    rideId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Ride',
+      required: true
+    },
+    passengerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    driverId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    fareDetails: {
+      type: Number,
+      required: true
+    },
     totalFare: { type: Number },
-    fareDetails: { type: Number }, // Backend2 Field Alias
-    
-    status: { 
-      type: String, 
-      enum: ['BOOKED', 'IN_TRANSIT', 'COMPLETED', 'CANCELLED', 'Scheduled', 'Ongoing'], 
-      default: 'Scheduled' 
+    tripStatus: {
+      type: String,
+      enum: ['Scheduled', 'Ongoing', 'Completed', 'Cancelled', 'BOOKED', 'IN_TRANSIT'],
+      default: 'Scheduled'
     },
-    tripStatus: { 
-      type: String, 
-      enum: ['Scheduled', 'Ongoing', 'Completed', 'Cancelled', 'BOOKED', 'IN_TRANSIT'], 
-      default: 'Scheduled' 
+    status: { type: String, default: 'BOOKED' },
+    paymentStatus: {
+      type: String,
+      enum: ['Pending', 'Completed', 'Failed', 'UNPAID', 'PAID'],
+      default: 'Pending'
     },
-    
-    paymentStatus: { 
-      type: String, 
-      enum: ['UNPAID', 'PAID', 'REFUNDED', 'Pending', 'Completed', 'Failed'], 
-      default: 'Pending' 
-    },
-    paymentMethod: { 
-      type: String, 
-      enum: ['Cash', 'Card', 'UPI', 'Wallet', 'Razorpay'], 
-      default: 'UPI' 
-    },
-    
-    sosAlerts: [sosAlertSchema]
+    paymentMethod: {
+      type: String,
+      enum: ['Cash', 'Card', 'UPI', 'Wallet', 'Internal Wallet Transfer', 'Razorpay'],
+      default: 'UPI'
+    }
   },
-  {
-    strict: false, // Guarantees all Backend2 schema fields are saved directly to MongoDB Atlas BSON
-    timestamps: true
+  { 
+    timestamps: true,
+    strict: false 
   }
 );
 
-// Pre-save hook: ensure totalFare & fareDetails and status & tripStatus stay synced
 tripSchema.pre('save', function (next) {
-  if (this.totalFare && !this.fareDetails) {
-    this.fareDetails = this.totalFare;
-  } else if (this.fareDetails && !this.totalFare) {
+  if (this.fareDetails !== undefined && this.totalFare === undefined) {
     this.totalFare = this.fareDetails;
+  } else if (this.totalFare !== undefined && this.fareDetails === undefined) {
+    this.fareDetails = this.totalFare;
   }
 
-  if (this.status && !this.tripStatus) {
-    this.tripStatus = this.status;
-  } else if (this.tripStatus && !this.status) {
+  if (this.tripStatus && !this.status) {
     this.status = this.tripStatus;
+  } else if (this.status && !this.tripStatus) {
+    this.tripStatus = this.status;
   }
   next();
 });

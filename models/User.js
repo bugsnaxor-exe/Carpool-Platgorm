@@ -1,109 +1,65 @@
 const mongoose = require('mongoose');
+const bcrypt = require('bcrypt');
 
-// Saved Commute Location Sub-Schema (Backend2 & Platform Compatible)
 const savedPlaceSchema = new mongoose.Schema({
   label: { type: String, trim: true },
   address: { type: String, trim: true },
-  lat: { type: mongoose.Schema.Types.Mixed }, // Supports both Number and String from Backend2
-  lng: { type: mongoose.Schema.Types.Mixed },
-  isDefault: { type: Boolean, default: false }
-}, { strict: false });
+  lat: { type: mongoose.Schema.Types.Mixed },
+  lng: { type: mongoose.Schema.Types.Mixed }
+}, { _id: true, strict: false });
 
-// Mobility Preferences Sub-Schema
-const preferenceSchema = new mongoose.Schema({
-  womenOnlyRides: { type: Boolean, default: false },
-  chatNotification: { type: Boolean, default: true },
-  musicAllowed: { type: Boolean, default: true },
-  smokingAllowed: { type: Boolean, default: false },
-  petFriendly: { type: Boolean, default: false },
-  quietRide: { type: Boolean, default: false }
-}, { strict: false });
-
-// User Schema (Merged Backend2 & Carpool Enterprise Schema)
 const userSchema = new mongoose.Schema(
   {
-    // Credentials & Authentication Values (Backend2 & Enterprise)
     name: { type: String, required: true, trim: true },
-    email: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
-    mobileNumber: { type: String, required: true, unique: true, trim: true, index: true },
-    phone: { type: String, trim: true }, // Backend2 Field Alias
-    password: { type: String, required: true }, // Hashed Password
-    
-    // OTP Fields (Backend2 & Email Service)
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    phone: { type: String, required: true, trim: true },
+    mobileNumber: { type: String, trim: true },
+    password: { type: String, required: true },
+    role: {
+      type: String,
+      enum: ['Employee', 'Admin', 'EMPLOYEE', 'COMPANY_ADMIN'],
+      default: 'Employee'
+    },
     otp: { type: String },
     otpExpires: { type: Date },
-
-    // Wallet Balance (Backend2 Direct Field)
-    wallet: { type: Number, default: 1250 },
-
-    // Verification & Enhanced Login Tracking Fields
-    emailVerified: { type: Boolean, default: true },
-    phoneVerified: { type: Boolean, default: true },
-    mfaEnabled: { type: Boolean, default: false },
-    lastLoginAt: { type: Date, default: Date.now },
-    loginCount: { type: Number, default: 1 },
-    lastLoginIp: { type: String, default: '127.0.0.1' },
-    loginDevice: { type: String, default: 'Web Desktop Shell' },
-    failedLoginAttempts: { type: Number, default: 0 },
-    lockUntil: { type: Date, default: null },
-    preferredAuthMethod: { 
-      type: String, 
-      enum: ['PASSWORD', 'EMAIL_OTP', 'PHONE_OTP'], 
-      default: 'EMAIL_OTP' 
-    },
-
-    // Corporate & Employee Values (Backend2: "Employee" | "Admin" | "COMPANY_ADMIN")
-    employeeId: { type: String, trim: true },
-    role: { 
-      type: String, 
-      enum: ['COMPANY_ADMIN', 'EMPLOYEE', 'Employee', 'Admin', 'DRIVER_MANAGER'], 
-      default: 'EMPLOYEE' 
-    },
-    organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: false, index: true },
-    department: { type: String, default: 'General', trim: true },
-    designation: { type: String, default: 'Team Member', trim: true },
-
-    // User Profile Values & Mobility Attributes
-    profilePicture: { type: String, default: '' },
-    gender: { 
-      type: String, 
-      enum: ['MALE', 'FEMALE', 'OTHER', 'PREFER_NOT_TO_SAY'], 
-      default: 'PREFER_NOT_TO_SAY' 
-    },
-    rating: { type: Number, default: 5.0, min: 1.0, max: 5.0 },
-    totalRidesCount: { type: Number, default: 0 },
-    
-    // Preferences & Saved Places
-    preferences: { type: preferenceSchema, default: () => ({}) },
+    wallet: { type: Number, default: 500 },
+    walletBalance: { type: Number, default: 500 },
     savedPlaces: [savedPlaceSchema],
-
-    // Account Lifecycle Status
-    status: { 
-      type: String, 
-      enum: ['ACTIVE', 'SUSPENDED', 'PENDING_VERIFICATION'], 
-      default: 'ACTIVE' 
-    }
+    status: { type: String, default: 'ACTIVE' },
+    emailVerified: { type: Boolean, default: true },
+    lastLoginAt: { type: Date, default: Date.now },
+    loginCount: { type: Number, default: 1 }
   },
-  {
-    strict: false, // Guarantees all Backend2 schema fields are saved directly to MongoDB Atlas BSON
-    timestamps: true
+  { 
+    timestamps: true,
+    strict: false 
   }
 );
 
-// Pre-save hook: ensure phone & mobileNumber stay strictly in sync
-userSchema.pre('save', function (next) {
+// Pre-save hook to hash password if modified & sync phone/mobileNumber and wallet/walletBalance
+userSchema.pre('save', async function () {
   if (this.mobileNumber && !this.phone) {
     this.phone = this.mobileNumber;
   } else if (this.phone && !this.mobileNumber) {
     this.mobileNumber = this.phone;
   }
-  if (this.wallet === undefined) {
-    this.wallet = 1250;
+
+  if (this.wallet !== undefined && this.walletBalance === undefined) {
+    this.walletBalance = this.wallet;
+  } else if (this.walletBalance !== undefined && this.wallet === undefined) {
+    this.wallet = this.walletBalance;
   }
-  next();
+
+  if (this.isModified('password') && !this.password.startsWith('$2b$')) {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+  }
 });
 
-// Helper method to strip sensitive credentials
+userSchema.methods.matchPassword = async function (enteredPassword) {
+  return await bcrypt.compare(enteredPassword, this.password);
+};
+
 userSchema.methods.toPublicJSON = function () {
   const obj = this.toObject();
   delete obj.password;

@@ -2,38 +2,39 @@ const mongoose = require('mongoose');
 
 const vehicleSchema = new mongoose.Schema(
   {
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    ownerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Backend2 Field Alias
-    organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization' },
-    
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    vehicleModel: { type: String, required: true, trim: true },
     model: { type: String, trim: true },
-    vehicleModel: { type: String, trim: true }, // Backend2 Field Alias
-    
     registrationNumber: { type: String, required: true, uppercase: true, trim: true },
     seatingCapacity: { type: Number, required: true, min: 1 },
-    
-    fuelType: { type: String, enum: ['EV', 'HYBRID', 'PETROL', 'DIESEL', 'CNG'], default: 'EV' },
-    color: { type: String, default: 'Black' },
-    status: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'APPROVED' }
+    fuelType: { type: String, enum: ['EV', 'HYBRID', 'PETROL', 'DIESEL', 'CNG'], default: 'PETROL' },
+    status: { type: String, default: 'APPROVED' }
   },
-  {
-    strict: false, // Guarantees all Backend2 schema fields are saved directly to MongoDB Atlas BSON
-    timestamps: true
+  { 
+    timestamps: true,
+    strict: false 
   }
 );
 
-// Pre-save hook: sync userId & ownerId and model & vehicleModel
 vehicleSchema.pre('save', function (next) {
-  if (this.userId && !this.ownerId) {
-    this.ownerId = this.userId;
-  } else if (this.ownerId && !this.userId) {
+  if (this.ownerId && !this.userId) {
     this.userId = this.ownerId;
+  } else if (this.userId && !this.ownerId) {
+    this.ownerId = this.userId;
   }
 
-  if (this.model && !this.vehicleModel) {
-    this.vehicleModel = this.model;
-  } else if (this.vehicleModel && !this.model) {
+  if (this.vehicleModel && !this.model) {
     this.model = this.vehicleModel;
+  } else if (this.model && !this.vehicleModel) {
+    this.vehicleModel = this.model;
   }
   next();
 });
