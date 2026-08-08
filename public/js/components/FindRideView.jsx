@@ -475,44 +475,24 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
             )}
           </div>
 
-          {/* Route Telemetry Bar: Distance & Travel Time */}
+          {/* Route Distance Badge */}
           {routeInfo.distanceKm !== null && (
             <div style={{
               display: 'flex',
-              justifyContent: 'space-around',
+              justifyContent: 'center',
               alignItems: 'center',
+              gap: '10px',
               background: '#0f172a',
               border: '1px solid #10b981',
               borderRadius: '12px',
-              padding: '10px 12px',
+              padding: '10px 14px',
               marginTop: '12px',
               marginBottom: '14px',
               boxShadow: '0 4px 15px rgba(0,0,0,0.5)'
             }}>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '0.68rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Road Distance</div>
-                <div style={{ fontSize: '1.1rem', fontWeight: '800', color: '#10b981' }}>
-                  <i className="fa-solid fa-route"></i> {routeInfo.distanceKm} km
-                </div>
-              </div>
-
-              <div style={{ borderLeft: '1px solid #334155', height: '24px' }}></div>
-
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '0.68rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Est. Drive Time</div>
-                <div style={{ fontSize: '1.1rem', fontWeight: '800', color: '#3b82f6' }}>
-                  <i className="fa-regular fa-clock"></i> {routeInfo.durationMin} mins
-                </div>
-              </div>
-
-              <div style={{ borderLeft: '1px solid #334155', height: '24px' }}></div>
-
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '0.68rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>CO₂ Offset</div>
-                <div style={{ fontSize: '1.1rem', fontWeight: '800', color: '#8b5cf6' }}>
-                  <i className="fa-solid fa-leaf"></i> {routeInfo.co2SavedKg} kg
-                </div>
-              </div>
+              <i className="fa-solid fa-route" style={{ color: '#10b981', fontSize: '1.2rem' }}></i>
+              <span style={{ fontSize: '0.85rem', color: '#cbd5e1', fontWeight: '600' }}>Road Distance:</span>
+              <span style={{ fontSize: '1.15rem', fontWeight: '800', color: '#10b981' }}>{routeInfo.distanceKm} km</span>
             </div>
           )}
 
