@@ -9,6 +9,12 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
   const [fetchingDestGPS, setFetchingDestGPS] = useState(false);
   const [routingLoading, setRoutingLoading] = useState(false);
 
+  // Autocomplete Suggestions State
+  const [pickupSuggestions, setPickupSuggestions] = useState([]);
+  const [destSuggestions, setDestSuggestions] = useState([]);
+  const [showPickupDropdown, setShowPickupDropdown] = useState(false);
+  const [showDestDropdown, setShowDestDropdown] = useState(false);
+
   const [step, setStep] = useState('SEARCH'); // 'SEARCH' or 'RESULTS'
   const [rides, setRides] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -19,6 +25,61 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
   const routePolylineRef = useRef(null);
   const pickupMarkerRef = useRef(null);
   const destMarkerRef = useRef(null);
+
+  const pickupDebounceRef = useRef(null);
+  const destDebounceRef = useRef(null);
+
+  // Helper: Fetch matching location suggestions while typing (Nominatim API)
+  const fetchLocationSuggestions = async (query, setSuggestions, setShowDropdown) => {
+    if (!query || query.trim().length < 3) {
+      setSuggestions([]);
+      setShowDropdown(false);
+      return;
+    }
+
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(query.trim())}`);
+      const data = await res.json();
+      if (data && data.length > 0) {
+        const formatted = data.map(item => ({
+          label: item.display_name.split(',').slice(0, 3).join(','),
+          fullAddress: item.display_name,
+          lat: parseFloat(item.lat),
+          lng: parseFloat(item.lon)
+        }));
+        setSuggestions(formatted);
+        setShowDropdown(true);
+      } else {
+        setSuggestions([]);
+        setShowDropdown(false);
+      }
+    } catch (e) {
+      setSuggestions([]);
+      setShowDropdown(false);
+    }
+  };
+
+  // Handle Pickup Typing Autocomplete
+  const handlePickupChange = (e) => {
+    const val = e.target.value;
+    setPickup(val);
+
+    if (pickupDebounceRef.current) clearTimeout(pickupDebounceRef.current);
+    pickupDebounceRef.current = setTimeout(() => {
+      fetchLocationSuggestions(val, setPickupSuggestions, setShowPickupDropdown);
+    }, 350);
+  };
+
+  // Handle Destination Typing Autocomplete
+  const handleDestinationChange = (e) => {
+    const val = e.target.value;
+    setDestination(val);
+
+    if (destDebounceRef.current) clearTimeout(destDebounceRef.current);
+    destDebounceRef.current = setTimeout(() => {
+      fetchLocationSuggestions(val, setDestSuggestions, setShowDestDropdown);
+    }, 350);
+  };
 
   // Helper: Geocode location string to Lat/Lng via Nominatim
   const geocodeAddress = async (address, defaultLat, defaultLng) => {
@@ -49,12 +110,12 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
   };
 
   // Draw Real Road Route on Map
-  const drawRoadRouteOnMap = async () => {
+  const drawRoadRouteOnMap = async (customStart, customEnd) => {
     if (!mapInstance.current) return;
     setRoutingLoading(true);
 
-    const startLoc = await geocodeAddress(pickup, 12.9279, 77.6772);
-    const endLoc = await geocodeAddress(destination, 12.8452, 77.6602);
+    const startLoc = customStart || await geocodeAddress(pickup, 12.9279, 77.6772);
+    const endLoc = customEnd || await geocodeAddress(destination, 12.8452, 77.6602);
 
     const roadWaypoints = await fetchOSRMRoadRoute(startLoc.lat, startLoc.lng, endLoc.lat, endLoc.lng);
 
@@ -89,10 +150,23 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     setRoutingLoading(false);
   };
 
+  // Select Pickup Autocomplete Suggestion
+  const selectPickupSuggestion = async (item) => {
+    setPickup(item.label);
+    setShowPickupDropdown(false);
+    await drawRoadRouteOnMap({ lat: item.lat, lng: item.lng, name: item.label }, null);
+  };
+
+  // Select Destination Autocomplete Suggestion
+  const selectDestSuggestion = async (item) => {
+    setDestination(item.label);
+    setShowDestDropdown(false);
+    await drawRoadRouteOnMap(null, { lat: item.lat, lng: item.lng, name: item.label });
+  };
+
   // Safe Leaflet Map Initialization & Re-mounting Fix
   useEffect(() => {
     if (step === 'SEARCH' && mapRef.current) {
-      // Clean up previous instance to prevent vanishing map on back navigation
       if (mapInstance.current) {
         mapInstance.current.remove();
         mapInstance.current = null;
@@ -134,7 +208,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
             : `GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
 
           setPickup(placeName);
-          await drawRoadRouteOnMap();
+          await drawRoadRouteOnMap({ lat: latitude, lng: longitude, name: placeName }, null);
         } catch (err) {
           setPickup(`Current Location (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
         } finally {
@@ -169,7 +243,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
             : `GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
 
           setDestination(placeName);
-          await drawRoadRouteOnMap();
+          await drawRoadRouteOnMap(null, { lat: latitude, lng: longitude, name: placeName });
         } catch (err) {
           setDestination(`Destination GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
         } finally {
@@ -243,16 +317,34 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
           </div>
 
           <div className="card">
+            {/* Pickup Location Field & Autocomplete Dropdown */}
             <div className="input-group">
               <label className="input-label"><i className="fa-solid fa-location-dot" style={{ color: '#10b981' }}></i> Pickup Location</label>
               <input 
                 type="text" 
                 className="input-field" 
                 value={pickup} 
-                onChange={(e) => setPickup(e.target.value)} 
-                onBlur={drawRoadRouteOnMap}
+                onChange={handlePickupChange} 
+                onFocus={() => pickupSuggestions.length > 0 && setShowPickupDropdown(true)}
+                onBlur={() => setTimeout(() => setShowPickupDropdown(false), 250)}
+                placeholder="Start typing pickup location..."
                 required 
               />
+
+              {showPickupDropdown && pickupSuggestions.length > 0 && (
+                <ul className="autocomplete-dropdown">
+                  {pickupSuggestions.map((item, idx) => (
+                    <li 
+                      key={idx} 
+                      className="autocomplete-item"
+                      onMouseDown={() => selectPickupSuggestion(item)}
+                    >
+                      <i className="fa-solid fa-location-dot" style={{ color: '#10b981' }}></i>
+                      <span>{item.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             {/* Pickup Location Shortcuts & GPS Fetcher */}
@@ -288,16 +380,34 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
               </button>
             </div>
 
+            {/* Destination Location Field & Autocomplete Dropdown */}
             <div className="input-group">
               <label className="input-label"><i className="fa-solid fa-flag-checkered" style={{ color: '#ef4444' }}></i> Destination Location</label>
               <input 
                 type="text" 
                 className="input-field" 
                 value={destination} 
-                onChange={(e) => setDestination(e.target.value)} 
-                onBlur={drawRoadRouteOnMap}
+                onChange={handleDestinationChange} 
+                onFocus={() => destSuggestions.length > 0 && setShowDestDropdown(true)}
+                onBlur={() => setTimeout(() => setShowDestDropdown(false), 250)}
+                placeholder="Start typing destination..."
                 required 
               />
+
+              {showDestDropdown && destSuggestions.length > 0 && (
+                <ul className="autocomplete-dropdown">
+                  {destSuggestions.map((item, idx) => (
+                    <li 
+                      key={idx} 
+                      className="autocomplete-item"
+                      onMouseDown={() => selectDestSuggestion(item)}
+                    >
+                      <i className="fa-solid fa-flag-checkered" style={{ color: '#ef4444' }}></i>
+                      <span>{item.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             {/* Destination Location Shortcuts & GPS Fetcher */}

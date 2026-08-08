@@ -306,6 +306,52 @@ body {
 
 .input-group {
   margin-bottom: 14px;
+  position: relative;
+}
+
+/* AUTOCOMPLETE LOCATION DROPDOWN */
+.autocomplete-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #0f172a;
+  border: 1px solid var(--accent-green);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+  z-index: 1000;
+  max-height: 210px;
+  overflow-y: auto;
+  margin-top: 4px;
+  list-style: none;
+  padding: 0;
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+.autocomplete-dropdown::-webkit-scrollbar {
+  display: none !important;
+}
+
+.autocomplete-item {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.82rem;
+  color: var(--text-main);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background 0.15s ease;
+}
+
+.autocomplete-item:last-child {
+  border-bottom: none;
+}
+
+.autocomplete-item:hover {
+  background: rgba(16, 185, 129, 0.18);
+  color: var(--accent-green);
 }
 
 .input-label {
