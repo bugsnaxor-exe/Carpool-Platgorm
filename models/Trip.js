@@ -5,7 +5,7 @@ const sosAlertSchema = new mongoose.Schema({
   lat: { type: Number },
   lng: { type: Number },
   timestamp: { type: Date, default: Date.now }
-});
+}, { strict: false });
 
 const tripSchema = new mongoose.Schema(
   {
@@ -21,7 +21,7 @@ const tripSchema = new mongoose.Schema(
     status: { 
       type: String, 
       enum: ['BOOKED', 'IN_TRANSIT', 'COMPLETED', 'CANCELLED', 'Scheduled', 'Ongoing'], 
-      default: 'BOOKED' 
+      default: 'Scheduled' 
     },
     tripStatus: { 
       type: String, 
@@ -32,7 +32,7 @@ const tripSchema = new mongoose.Schema(
     paymentStatus: { 
       type: String, 
       enum: ['UNPAID', 'PAID', 'REFUNDED', 'Pending', 'Completed', 'Failed'], 
-      default: 'UNPAID' 
+      default: 'Pending' 
     },
     paymentMethod: { 
       type: String, 
@@ -42,7 +42,10 @@ const tripSchema = new mongoose.Schema(
     
     sosAlerts: [sosAlertSchema]
   },
-  { timestamps: true }
+  {
+    strict: false, // Guarantees all Backend2 schema fields are saved directly to MongoDB Atlas BSON
+    timestamps: true
+  }
 );
 
 // Pre-save hook: ensure totalFare & fareDetails and status & tripStatus stay synced

@@ -7,7 +7,7 @@ const savedPlaceSchema = new mongoose.Schema({
   lat: { type: mongoose.Schema.Types.Mixed }, // Supports both Number and String from Backend2
   lng: { type: mongoose.Schema.Types.Mixed },
   isDefault: { type: Boolean, default: false }
-});
+}, { strict: false });
 
 // Mobility Preferences Sub-Schema
 const preferenceSchema = new mongoose.Schema({
@@ -17,7 +17,7 @@ const preferenceSchema = new mongoose.Schema({
   smokingAllowed: { type: Boolean, default: false },
   petFriendly: { type: Boolean, default: false },
   quietRide: { type: Boolean, default: false }
-});
+}, { strict: false });
 
 // User Schema (Merged Backend2 & Carpool Enterprise Schema)
 const userSchema = new mongoose.Schema(
@@ -85,16 +85,20 @@ const userSchema = new mongoose.Schema(
     }
   },
   {
-    timestamps: true // Automatically maintains createdAt and updatedAt
+    strict: false, // Guarantees all Backend2 schema fields are saved directly to MongoDB Atlas BSON
+    timestamps: true
   }
 );
 
-// Pre-save hook: ensure phone & mobileNumber stay in sync
+// Pre-save hook: ensure phone & mobileNumber stay strictly in sync
 userSchema.pre('save', function (next) {
   if (this.mobileNumber && !this.phone) {
     this.phone = this.mobileNumber;
   } else if (this.phone && !this.mobileNumber) {
     this.mobileNumber = this.phone;
+  }
+  if (this.wallet === undefined) {
+    this.wallet = 1250;
   }
   next();
 });

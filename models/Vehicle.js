@@ -16,7 +16,10 @@ const vehicleSchema = new mongoose.Schema(
     color: { type: String, default: 'Black' },
     status: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'APPROVED' }
   },
-  { timestamps: true }
+  {
+    strict: false, // Guarantees all Backend2 schema fields are saved directly to MongoDB Atlas BSON
+    timestamps: true
+  }
 );
 
 // Pre-save hook: sync userId & ownerId and model & vehicleModel

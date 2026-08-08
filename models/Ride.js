@@ -8,7 +8,7 @@ const locationSchema = new mongoose.Schema({
   name: { type: String, trim: true },
   lat: { type: Number },
   lng: { type: Number }
-});
+}, { _id: true, strict: false });
 
 const rideSchema = new mongoose.Schema(
   {
@@ -21,6 +21,7 @@ const rideSchema = new mongoose.Schema(
     
     pickupLocation: { type: locationSchema, required: true },
     destinationLocation: { type: locationSchema, required: true },
+    destination: { type: locationSchema }, // Backend2 Field Alias
     
     travelDateTime: { type: Date },
     travelDate: { type: Date }, // Backend2 Field Alias
@@ -35,19 +36,28 @@ const rideSchema = new mongoose.Schema(
     
     status: { 
       type: String, 
-      enum: ['Scheduled', 'Ongoing', 'Completed', 'Cancelled', 'OPEN', 'IN_PROGRESS'], 
-      default: 'OPEN' 
+      enum: ['Scheduled', 'Ongoing', 'Completed', 'Cancelled', 'OPEN', 'IN_PROGRESS', 'Active'], 
+      default: 'Scheduled' 
     }
   },
-  { timestamps: true }
+  {
+    strict: false, // Guarantees all Backend2 schema fields are saved directly to MongoDB Atlas BSON
+    timestamps: true
+  }
 );
 
-// Pre-save hook: ensure travelDate and travelDateTime stay synced
+// Pre-save hook: ensure travelDate & travelDateTime and destinationLocation & destination stay synced
 rideSchema.pre('save', function (next) {
   if (this.travelDateTime && !this.travelDate) {
     this.travelDate = this.travelDateTime;
   } else if (this.travelDate && !this.travelDateTime) {
     this.travelDateTime = this.travelDate;
+  }
+
+  if (this.destinationLocation && !this.destination) {
+    this.destination = this.destinationLocation;
+  } else if (this.destination && !this.destinationLocation) {
+    this.destinationLocation = this.destination;
   }
   next();
 });
