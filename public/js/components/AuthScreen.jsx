@@ -70,28 +70,57 @@ function AuthScreen({ onAuthSuccess }) {
   return (
     <div style={{ padding: '24px 20px', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
       <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-        <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'linear-gradient(135deg, #10b981, #3b82f6)', display: 'inline-flex', justifyContent: 'center', alignItems: 'center', fontSize: '1.8rem', color: '#fff', marginBottom: '12px' }}>
+        <div style={{ 
+          width: '60px', 
+          height: '60px', 
+          borderRadius: '18px', 
+          background: '#053B22', 
+          display: 'inline-flex', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          fontSize: '1.8rem', 
+          color: '#58D68D', 
+          marginBottom: '14px',
+          boxShadow: '0 8px 25px rgba(5, 59, 34, 0.22)'
+        }}>
           <i className="fa-solid fa-shield-halved"></i>
         </div>
-        <h3 style={{ fontSize: '1.5rem', fontWeight: '800' }}>Enterprise Login</h3>
-        <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Sign in using your Email or Mobile Number</p>
+        <h3 style={{ fontSize: '1.5rem', fontWeight: '800', color: '#11281A', letterSpacing: '-0.3px' }}>Enterprise Sign In</h3>
+        <p style={{ fontSize: '0.85rem', color: '#5D7063', marginTop: '4px' }}>Access your corporate mobility portal</p>
       </div>
 
+      {/* Pill Tab Switcher */}
       <div className="auth-tabs">
-        <button className={`auth-tab ${mode === 'LOGIN' ? 'active' : ''}`} onClick={() => setMode('LOGIN')}>Login</button>
-        <button className={`auth-tab ${mode === 'REGISTER' ? 'active' : ''}`} onClick={() => setMode('REGISTER')}>Sign Up</button>
+        <button type="button" className={`auth-tab ${mode === 'LOGIN' ? 'active' : ''}`} onClick={() => { setMode('LOGIN'); setError(''); }}>
+          Sign In
+        </button>
+        <button type="button" className={`auth-tab ${mode === 'REGISTER' ? 'active' : ''}`} onClick={() => { setMode('REGISTER'); setError(''); }}>
+          Register
+        </button>
       </div>
 
       {error && (
-        <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: '#f87171', padding: '10px 14px', borderRadius: '8px', fontSize: '0.82rem', marginBottom: '14px' }}>
-          <i className="fa-solid fa-triangle-exclamation"></i> {error}
+        <div style={{ 
+          background: 'rgba(231, 76, 60, 0.1)', 
+          border: '1px solid rgba(231, 76, 60, 0.3)', 
+          color: '#c0392b', 
+          padding: '12px 14px', 
+          borderRadius: '12px', 
+          fontSize: '0.82rem', 
+          marginBottom: '16px',
+          fontWeight: '600',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <i className="fa-solid fa-circle-exclamation" style={{ fontSize: '1rem' }}></i> {error}
         </div>
       )}
 
       {mode === 'LOGIN' ? (
         <form onSubmit={handleLogin}>
           <div className="input-group">
-            <label className="input-label">Email or Mobile Number</label>
+            <label className="input-label"><i className="fa-solid fa-envelope" style={{ color: '#0D6E42' }}></i> Email or Mobile Number</label>
             <input 
               type="text" 
               className="input-field" 
@@ -103,7 +132,7 @@ function AuthScreen({ onAuthSuccess }) {
           </div>
 
           <div className="input-group" style={{ position: 'relative' }}>
-            <label className="input-label">Password</label>
+            <label className="input-label"><i className="fa-solid fa-lock" style={{ color: '#0D6E42' }}></i> Password</label>
             <input 
               type={showPassword ? 'text' : 'password'} 
               className="input-field" 
@@ -115,13 +144,13 @@ function AuthScreen({ onAuthSuccess }) {
             <button 
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              style={{ position: 'absolute', right: '12px', top: '34px', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
+              style={{ position: 'absolute', right: '14px', top: '34px', background: 'none', border: 'none', color: '#0D6E42', cursor: 'pointer', fontSize: '1.1rem' }}
             >
               <i className={`fa-solid ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
             </button>
           </div>
 
-          <button type="submit" className="btn" disabled={loading}>
+          <button type="submit" className="btn" disabled={loading} style={{ marginTop: '8px' }}>
             {loading ? 'Authenticating...' : 'Sign In'} <i className="fa-solid fa-arrow-right"></i>
           </button>
         </form>
@@ -160,19 +189,27 @@ function AuthScreen({ onAuthSuccess }) {
             </select>
           </div>
 
-          <button type="submit" className="btn" disabled={loading}>
+          <button type="submit" className="btn" disabled={loading} style={{ marginTop: '8px' }}>
             {loading ? 'Creating Account...' : 'Create Account'}
           </button>
         </form>
       )}
 
       {/* Demo Credentials Quick Selector */}
-      <div style={{ marginTop: '20px', padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', fontSize: '0.78rem', color: '#94a3b8' }}>
-        <strong style={{ color: '#fff' }}>Quick Demo Accounts:</strong>
-        <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-          <button type="button" onClick={() => { setIdentifier('alex.rivera@acme.com'); setPassword('Password123!'); }} style={{ flex: 1, padding: '4px', background: '#1e293b', border: 'none', color: '#10b981', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}>Driver</button>
-          <button type="button" onClick={() => { setIdentifier('+919988776655'); setPassword('Password123!'); }} style={{ flex: 1, padding: '4px', background: '#1e293b', border: 'none', color: '#3b82f6', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}>Passenger (Phone)</button>
-          <button type="button" onClick={() => { setIdentifier('admin@acme.com'); setPassword('Password123!'); }} style={{ flex: 1, padding: '4px', background: '#1e293b', border: 'none', color: '#8b5cf6', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}>Admin</button>
+      <div style={{ marginTop: '22px', padding: '14px', background: '#F3ECE1', borderRadius: '14px', border: '1px solid #E8E1D3' }}>
+        <div style={{ fontSize: '0.78rem', fontWeight: '800', color: '#11281A', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          <i className="fa-solid fa-bolt" style={{ color: '#0D6E42' }}></i> Quick Demo Credentials:
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button type="button" onClick={() => { setIdentifier('alex.rivera@acme.com'); setPassword('Password123!'); setMode('LOGIN'); }} style={{ flex: 1, padding: '8px 4px', background: '#FFFFFF', border: '1px solid #E8E1D3', color: '#0D6E42', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '0.78rem' }}>
+            <i className="fa-solid fa-car"></i> Driver
+          </button>
+          <button type="button" onClick={() => { setIdentifier('+919988776655'); setPassword('Password123!'); setMode('LOGIN'); }} style={{ flex: 1, padding: '8px 4px', background: '#FFFFFF', border: '1px solid #E8E1D3', color: '#0D6E42', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '0.78rem' }}>
+            <i className="fa-solid fa-mobile-screen"></i> Rider
+          </button>
+          <button type="button" onClick={() => { setIdentifier('admin@acme.com'); setPassword('Password123!'); setMode('LOGIN'); }} style={{ flex: 1, padding: '8px 4px', background: '#FFFFFF', border: '1px solid #E8E1D3', color: '#053B22', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '0.78rem' }}>
+            <i className="fa-solid fa-user-shield"></i> Admin
+          </button>
         </div>
       </div>
     </div>
