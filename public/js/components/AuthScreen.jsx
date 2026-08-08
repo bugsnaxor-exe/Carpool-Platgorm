@@ -1,16 +1,19 @@
+const { useState } = React;
+
 function AuthScreen({ onAuthSuccess }) {
-  const [mode, setMode] = React.useState('LOGIN');
-  const [identifier, setIdentifier] = React.useState('alex.rivera@acme.com');
-  const [password, setPassword] = React.useState('Password123!');
-  const [showPassword, setShowPassword] = React.useState(false);
+  const [mode, setMode] = useState('LOGIN'); // 'LOGIN' or 'REGISTER'
+  const [identifier, setIdentifier] = useState('alex.rivera@acme.com'); // Pre-filled demo
+  const [password, setPassword] = useState('Password123!');
+  const [showPassword, setShowPassword] = useState(false);
 
-  const [regName, setRegName] = React.useState('');
-  const [regEmail, setRegEmail] = React.useState('');
-  const [regMobile, setRegMobile] = React.useState('');
-  const [regRole, setRegRole] = React.useState('EMPLOYEE');
+  // Register Fields
+  const [regName, setRegName] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regMobile, setRegMobile] = useState('');
+  const [regRole, setRegRole] = useState('EMPLOYEE');
 
-  const [error, setError] = React.useState('');
-  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -156,6 +159,7 @@ function AuthScreen({ onAuthSuccess }) {
         </form>
       )}
 
+      {/* Demo Credentials Quick Selector */}
       <div style={{ marginTop: '20px', padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', fontSize: '0.78rem', color: '#94a3b8' }}>
         <strong style={{ color: '#fff' }}>Quick Demo Accounts:</strong>
         <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>

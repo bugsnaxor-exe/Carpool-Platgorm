@@ -19,7 +19,7 @@
   <!-- Custom CSS Styles -->
   <link rel="stylesheet" href="/css/styles.css">
 
-  <!-- React 18 & Babel Standalone for Native JSX execution -->
+  <!-- React 18 & Babel Standalone -->
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -30,7 +30,18 @@
 <body>
   <div id="root"></div>
 
-  <!-- Single Entry Point App Script -->
+  <!-- Modular React Component Scripts -->
+  <script type="text/babel" src="/js/components/SplashScreen.jsx"></script>
+  <script type="text/babel" src="/js/components/AuthScreen.jsx"></script>
+  <script type="text/babel" src="/js/components/FindRideView.jsx"></script>
+  <script type="text/babel" src="/js/components/OfferRideView.jsx"></script>
+  <script type="text/babel" src="/js/components/LiveTrackingView.jsx"></script>
+  <script type="text/babel" src="/js/components/MyTripsView.jsx"></script>
+  <script type="text/babel" src="/js/components/WalletView.jsx"></script>
+  <script type="text/babel" src="/js/components/VehicleManagerView.jsx"></script>
+  <script type="text/babel" src="/js/components/AdminConsole.jsx"></script>
+
+  <!-- Root App Shell Script -->
   <script type="text/babel" src="/js/app.jsx"></script>
 </body>
 </html>
