@@ -36,8 +36,21 @@ const login = async (body) => {
   }).populate('organizationId');
 
   if (!user || !verifyPassword(password, user.password)) {
+    // Increment failed login attempts
+    if (user) {
+      user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
+      await user.save();
+    }
     return { status: 401, data: { error: 'Invalid credentials' } };
   }
+
+  // Update Login Metadata in MongoDB
+  user.lastLoginAt = new Date();
+  user.loginCount = (user.loginCount || 0) + 1;
+  user.failedLoginAttempts = 0;
+  user.lastLoginIp = '127.0.0.1';
+  user.loginDevice = 'Web Browser Shell';
+  await user.save();
 
   const token = generateToken({
     _id: user._id.toString(),
@@ -53,7 +66,7 @@ const login = async (body) => {
     performedBy: user._id,
     action: 'USER_LOGIN',
     targetType: 'User',
-    details: `User ${user.email} logged in`,
+    details: `User ${user.email} logged in (Login #${user.loginCount})`,
     organizationId: user.organizationId ? user.organizationId._id : null
   });
 

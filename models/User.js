@@ -28,11 +28,21 @@ const userSchema = new mongoose.Schema(
     mobileNumber: { type: String, required: true, unique: true, trim: true, index: true },
     password: { type: String, required: true }, // Scrypt Salted Password Hash
     
-    // Verification & Security Flags
+    // Verification & Enhanced Login Tracking Fields
     emailVerified: { type: Boolean, default: true },
     phoneVerified: { type: Boolean, default: true },
     mfaEnabled: { type: Boolean, default: false },
     lastLoginAt: { type: Date, default: Date.now },
+    loginCount: { type: Number, default: 1 },
+    lastLoginIp: { type: String, default: '127.0.0.1' },
+    loginDevice: { type: String, default: 'Web Desktop Shell' },
+    failedLoginAttempts: { type: Number, default: 0 },
+    lockUntil: { type: Date, default: null },
+    preferredAuthMethod: { 
+      type: String, 
+      enum: ['PASSWORD', 'EMAIL_OTP', 'PHONE_OTP'], 
+      default: 'EMAIL_OTP' 
+    },
 
     // Corporate & Employee Values
     employeeId: { type: String, trim: true },
