@@ -11,6 +11,9 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
   const pickupLocRef = useRef(DEFAULT_PICKUP);
   const destLocRef = useRef(DEFAULT_DESTINATION);
 
+  // Route Telemetry (Distance, Duration, CO2)
+  const [routeInfo, setRouteInfo] = useState({ distanceKm: null, durationMin: null, co2SavedKg: null });
+
   const [seats, setSeats] = useState(1);
   const [recurring, setRecurring] = useState(false);
   const [fetchingGPS, setFetchingGPS] = useState(false);
@@ -37,7 +40,19 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
   const pickupDebounceRef = useRef(null);
   const destDebounceRef = useRef(null);
 
-  // Helper: Fetch matching location suggestions (Google Places first, Nominatim fallback)
+  // Haversine Distance Helper Fallback (km)
+  const calculateHaversineDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371; // km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return parseFloat((R * c).toFixed(1));
+  };
+
+  // Helper: Fetch matching location suggestions
   const fetchLocationSuggestions = (query, setSuggestions, setShowDropdown) => {
     if (!query || query.trim().length < 2) {
       setSuggestions([]);
@@ -47,7 +62,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
 
     const q = query.trim();
 
-    // 1. Try Google Places Autocomplete Service
+    // 1. Try Google Places Autocomplete Service if ready
     if (typeof window.google !== 'undefined' && window.google.maps && window.google.maps.places) {
       try {
         const service = new window.google.maps.places.AutocompleteService();
@@ -128,22 +143,32 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     }, 280);
   };
 
-  // Fetch OSRM Turn-by-Turn Road Route
+  // Fetch OSRM Turn-by-Turn Road Route & Calculate Distance
   const fetchOSRMRoadRoute = async (startLat, startLng, endLat, endLng) => {
     try {
       const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`;
       const res = await fetch(url);
       const data = await res.json();
       if (data.routes && data.routes.length > 0) {
-        return data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+        const route = data.routes[0];
+        const distKm = parseFloat((route.distance / 1000).toFixed(1));
+        const durMin = Math.ceil(route.duration / 60);
+        const co2Kg = parseFloat((distKm * 0.18).toFixed(1));
+
+        setRouteInfo({ distanceKm: distKm, durationMin: durMin, co2SavedKg: co2Kg });
+        return route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
       }
     } catch (e) {
-      console.warn('OSRM Road Route failed, using direct points');
+      console.warn('OSRM Road Route failed, using fallback calculations');
     }
+
+    const distKm = calculateHaversineDistance(startLat, startLng, endLat, endLng);
+    const durMin = Math.ceil(distKm * 2.2);
+    setRouteInfo({ distanceKm: distKm, durationMin: durMin, co2SavedKg: parseFloat((distKm * 0.18).toFixed(1)) });
     return [[startLat, startLng], [endLat, endLng]];
   };
 
-  // Draw Exact Road Route on Map
+  // Draw Exact Road Route on Map & Compute Distance
   const drawRoadRouteOnMap = async (customStart, customEnd) => {
     const startLoc = customStart || pickupLocRef.current;
     const endLoc = customEnd || destLocRef.current;
@@ -269,7 +294,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     }
   };
 
-  // Safe Leaflet Map Initialization & Re-mounting Fix + Map Click Location Selection
+  // Safe Leaflet Map Initialization & Map Click Handler
   useEffect(() => {
     if (step === 'SEARCH' && mapRef.current) {
       if (mapInstance.current) {
@@ -441,7 +466,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
             <div className="map-view-container" ref={mapRef}></div>
             {routingLoading ? (
               <div style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(15, 23, 42, 0.85)', padding: '6px 12px', borderRadius: '12px', color: '#10b981', fontSize: '0.78rem', fontWeight: '700', zIndex: 500 }}>
-                <i className="fa-solid fa-spinner fa-spin"></i> Calculating Road Navigation...
+                <i className="fa-solid fa-spinner fa-spin"></i> Calculating Distance & Route...
               </div>
             ) : (
               <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'rgba(15, 23, 42, 0.85)', padding: '5px 10px', borderRadius: '12px', color: '#cbd5e1', fontSize: '0.72rem', fontWeight: '600', zIndex: 500 }}>
@@ -449,6 +474,47 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
               </div>
             )}
           </div>
+
+          {/* Route Telemetry Bar: Distance & Travel Time */}
+          {routeInfo.distanceKm !== null && (
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-around',
+              alignItems: 'center',
+              background: '#0f172a',
+              border: '1px solid #10b981',
+              borderRadius: '12px',
+              padding: '10px 12px',
+              marginTop: '12px',
+              marginBottom: '14px',
+              boxShadow: '0 4px 15px rgba(0,0,0,0.5)'
+            }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '0.68rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Road Distance</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: '800', color: '#10b981' }}>
+                  <i className="fa-solid fa-route"></i> {routeInfo.distanceKm} km
+                </div>
+              </div>
+
+              <div style={{ borderLeft: '1px solid #334155', height: '24px' }}></div>
+
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '0.68rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Est. Drive Time</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: '800', color: '#3b82f6' }}>
+                  <i className="fa-regular fa-clock"></i> {routeInfo.durationMin} mins
+                </div>
+              </div>
+
+              <div style={{ borderLeft: '1px solid #334155', height: '24px' }}></div>
+
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '0.68rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>CO₂ Offset</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: '800', color: '#8b5cf6' }}>
+                  <i className="fa-solid fa-leaf"></i> {routeInfo.co2SavedKg} kg
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="card">
             {/* Pickup Location Field & Autocomplete Dropdown */}
