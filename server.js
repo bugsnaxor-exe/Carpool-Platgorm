@@ -98,13 +98,13 @@ const server = http.createServer(async (req, res) => {
   const user = verifyToken(token);
 
   try {
-    // Modular Async Mongoose Controller Routing
-    if (pathname === '/api/auth/login' && method === 'POST') {
+    // Modular Async Mongoose Controller Routing & Fail-Safe Route Aliases
+    if ((pathname === '/api/auth/login' || pathname === '/api/login') && method === 'POST') {
       const result = await authController.login(await parseBody(req));
       return sendJson(res, result.status, result.data);
     }
 
-    if (pathname === '/api/auth/send-otp' && method === 'POST') {
+    if ((pathname === '/api/auth/send-otp' || pathname === '/api/request-otp') && method === 'POST') {
       const result = await authController.sendOtp(await parseBody(req));
       return sendJson(res, result.status, result.data);
     }
@@ -114,7 +114,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, result.status, result.data);
     }
 
-    if (pathname === '/api/auth/register' && method === 'POST') {
+    if ((pathname === '/api/auth/register' || pathname === '/api/register') && method === 'POST') {
       const result = await authController.register(await parseBody(req));
       return sendJson(res, result.status, result.data);
     }
