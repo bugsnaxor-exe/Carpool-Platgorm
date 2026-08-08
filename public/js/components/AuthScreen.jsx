@@ -171,11 +171,11 @@ function AuthScreen({ onAuthSuccess }) {
       {mode === 'LOGIN' ? (
         <form onSubmit={handleLogin}>
           <div className="input-group">
-            <label className="input-label"><i className="fa-solid fa-envelope" style={{ color: '#0D6E42' }}></i> Email or Mobile Number</label>
+            <label className="input-label"><i className="fa-solid fa-envelope" style={{ color: '#0D6E42' }}></i> Corporate Email Address</label>
             <input 
-              type="text" 
+              type="email" 
               className="input-field" 
-              placeholder="e.g. alex@acme.com or +919811223344"
+              placeholder="e.g. alex.rivera@acme.com"
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value)}
               required
@@ -315,8 +315,8 @@ function AuthScreen({ onAuthSuccess }) {
           <button type="button" onClick={() => { setIdentifier('alex.rivera@acme.com'); setPassword('Password123!'); setMode('LOGIN'); setRegStep(1); }} style={{ flex: 1, padding: '8px 4px', background: '#FFFFFF', border: '1px solid #E8E1D3', color: '#0D6E42', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '0.78rem' }}>
             <i className="fa-solid fa-car"></i> Driver
           </button>
-          <button type="button" onClick={() => { setIdentifier('+919988776655'); setPassword('Password123!'); setMode('LOGIN'); setRegStep(1); }} style={{ flex: 1, padding: '8px 4px', background: '#FFFFFF', border: '1px solid #E8E1D3', color: '#0D6E42', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '0.78rem' }}>
-            <i className="fa-solid fa-mobile-screen"></i> Rider
+          <button type="button" onClick={() => { setIdentifier('priya.sharma@acme.com'); setPassword('Password123!'); setMode('LOGIN'); setRegStep(1); }} style={{ flex: 1, padding: '8px 4px', background: '#FFFFFF', border: '1px solid #E8E1D3', color: '#0D6E42', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '0.78rem' }}>
+            <i className="fa-solid fa-user-group"></i> Rider
           </button>
           <button type="button" onClick={() => { setIdentifier('admin@acme.com'); setPassword('Password123!'); setMode('LOGIN'); setRegStep(1); }} style={{ flex: 1, padding: '8px 4px', background: '#FFFFFF', border: '1px solid #E8E1D3', color: '#053B22', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '0.78rem' }}>
             <i className="fa-solid fa-user-shield"></i> Admin
