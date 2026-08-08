@@ -11,8 +11,8 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
   const pickupLocRef = useRef(DEFAULT_PICKUP);
   const destLocRef = useRef(DEFAULT_DESTINATION);
 
-  // Route Telemetry (Distance, Duration, CO2)
-  const [routeInfo, setRouteInfo] = useState({ distanceKm: null, durationMin: null, co2SavedKg: null });
+  // Route Telemetry (Distance)
+  const [routeInfo, setRouteInfo] = useState({ distanceKm: null });
 
   const [seats, setSeats] = useState(1);
   const [recurring, setRecurring] = useState(false);
@@ -32,6 +32,12 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
   const [bookedTrip, setBookedTrip] = useState(null);
 
   const mapRef = useRef(null);
+  const googleMapRef = useRef(null);
+  const gPickupMarkerRef = useRef(null);
+  const gDestMarkerRef = useRef(null);
+  const gPolylineRef = useRef(null);
+
+  // Leaflet Fallback Refs
   const mapInstance = useRef(null);
   const routePolylineRef = useRef(null);
   const pickupMarkerRef = useRef(null);
@@ -52,7 +58,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     return parseFloat((R * c).toFixed(1));
   };
 
-  // Helper: Fetch matching location suggestions
+  // Helper: Fetch matching location suggestions (Google Places first, Nominatim fallback)
   const fetchLocationSuggestions = (query, setSuggestions, setShowDropdown) => {
     if (!query || query.trim().length < 2) {
       setSuggestions([]);
@@ -152,10 +158,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
       if (data.routes && data.routes.length > 0) {
         const route = data.routes[0];
         const distKm = parseFloat((route.distance / 1000).toFixed(1));
-        const durMin = Math.ceil(route.duration / 60);
-        const co2Kg = parseFloat((distKm * 0.18).toFixed(1));
-
-        setRouteInfo({ distanceKm: distKm, durationMin: durMin, co2SavedKg: co2Kg });
+        setRouteInfo({ distanceKm: distKm });
         return route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
       }
     } catch (e) {
@@ -163,49 +166,72 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     }
 
     const distKm = calculateHaversineDistance(startLat, startLng, endLat, endLng);
-    const durMin = Math.ceil(distKm * 2.2);
-    setRouteInfo({ distanceKm: distKm, durationMin: durMin, co2SavedKg: parseFloat((distKm * 0.18).toFixed(1)) });
+    setRouteInfo({ distanceKm: distKm });
     return [[startLat, startLng], [endLat, endLng]];
   };
 
-  // Draw Exact Road Route on Map & Compute Distance
+  // Draw Exact Road Route on Google Maps Canvas (or Leaflet fallback)
   const drawRoadRouteOnMap = async (customStart, customEnd) => {
     const startLoc = customStart || pickupLocRef.current;
     const endLoc = customEnd || destLocRef.current;
 
-    if (!startLoc || !endLoc || !mapInstance.current) return;
+    if (!startLoc || !endLoc) return;
     setRoutingLoading(true);
 
     const roadWaypoints = await fetchOSRMRoadRoute(startLoc.lat, startLoc.lng, endLoc.lat, endLoc.lng);
 
-    if (!mapInstance.current) return;
+    // 1. Google Maps Canvas Rendering
+    if (typeof window.google !== 'undefined' && window.google.maps && googleMapRef.current) {
+      try {
+        // Clear previous Google markers & polyline
+        if (gPickupMarkerRef.current) gPickupMarkerRef.current.setMap(null);
+        if (gDestMarkerRef.current) gDestMarkerRef.current.setMap(null);
+        if (gPolylineRef.current) gPolylineRef.current.setMap(null);
 
-    // Remove previous markers & route layers
-    if (routePolylineRef.current) mapInstance.current.removeLayer(routePolylineRef.current);
-    if (pickupMarkerRef.current) mapInstance.current.removeLayer(pickupMarkerRef.current);
-    if (destMarkerRef.current) mapInstance.current.removeLayer(destMarkerRef.current);
+        const gPath = roadWaypoints.map(([lat, lng]) => ({ lat, lng }));
 
-    // Exact Pickup Marker
-    pickupMarkerRef.current = L.marker([startLoc.lat, startLoc.lng])
-      .addTo(mapInstance.current)
-      .bindPopup(`📍 Pickup: ${startLoc.name}`);
+        gPickupMarkerRef.current = new window.google.maps.Marker({
+          position: { lat: startLoc.lat, lng: startLoc.lng },
+          map: googleMapRef.current,
+          title: `📍 Pickup: ${startLoc.name}`
+        });
 
-    // Exact Destination Marker
-    destMarkerRef.current = L.marker([endLoc.lat, endLoc.lng])
-      .addTo(mapInstance.current)
-      .bindPopup(`🏁 Destination: ${endLoc.name}`);
+        gDestMarkerRef.current = new window.google.maps.Marker({
+          position: { lat: endLoc.lat, lng: endLoc.lng },
+          map: googleMapRef.current,
+          title: `🏁 Destination: ${endLoc.name}`
+        });
 
-    // Draw Smooth Road Navigation Polyline
-    routePolylineRef.current = L.polyline(roadWaypoints, {
-      color: '#10b981',
-      weight: 5,
-      opacity: 0.95,
-      lineCap: 'round',
-      lineJoin: 'round'
-    }).addTo(mapInstance.current);
+        gPolylineRef.current = new window.google.maps.Polyline({
+          path: gPath,
+          geodesic: true,
+          strokeColor: '#10b981',
+          strokeOpacity: 0.95,
+          strokeWeight: 5,
+          map: googleMapRef.current
+        });
 
-    // Auto-fit camera bounds to fit both locations & road route
-    mapInstance.current.fitBounds(routePolylineRef.current.getBounds(), { padding: [35, 35] });
+        const bounds = new window.google.maps.LatLngBounds();
+        gPath.forEach(pt => bounds.extend(pt));
+        googleMapRef.current.fitBounds(bounds);
+        setRoutingLoading(false);
+        return;
+      } catch (e) {}
+    }
+
+    // 2. Leaflet Fallback Rendering
+    if (mapInstance.current) {
+      if (routePolylineRef.current) mapInstance.current.removeLayer(routePolylineRef.current);
+      if (pickupMarkerRef.current) mapInstance.current.removeLayer(pickupMarkerRef.current);
+      if (destMarkerRef.current) mapInstance.current.removeLayer(destMarkerRef.current);
+
+      pickupMarkerRef.current = L.marker([startLoc.lat, startLoc.lng]).addTo(mapInstance.current).bindPopup(`📍 Pickup: ${startLoc.name}`);
+      destMarkerRef.current = L.marker([endLoc.lat, endLoc.lng]).addTo(mapInstance.current).bindPopup(`🏁 Destination: ${endLoc.name}`);
+
+      routePolylineRef.current = L.polyline(roadWaypoints, { color: '#10b981', weight: 5, opacity: 0.95 }).addTo(mapInstance.current);
+      mapInstance.current.fitBounds(routePolylineRef.current.getBounds(), { padding: [35, 35] });
+    }
+
     setRoutingLoading(false);
   };
 
@@ -294,9 +320,50 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     }
   };
 
-  // Safe Leaflet Map Initialization & Map Click Handler
+  // Primary Google Maps Initialization (with Leaflet fallback)
   useEffect(() => {
     if (step === 'SEARCH' && mapRef.current) {
+      // 1. Try Official Google Maps Canvas
+      if (typeof window.google !== 'undefined' && window.google.maps) {
+        try {
+          const darkStyle = [
+            { elementType: 'geometry', stylers: [{ color: '#1d2c4d' }] },
+            { elementType: 'labels.text.fill', stylers: [{ color: '#8ec3b9' }] },
+            { elementType: 'labels.text.stroke', stylers: [{ color: '#1a3646' }] },
+            { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#304a7d' }] },
+            { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] }
+          ];
+
+          googleMapRef.current = new window.google.maps.Map(mapRef.current, {
+            center: { lat: pickupLocRef.current.lat, lng: pickupLocRef.current.lng },
+            zoom: 12,
+            styles: darkStyle,
+            disableDefaultUI: true
+          });
+
+          // Google Maps Click Listener
+          googleMapRef.current.addListener('click', (e) => {
+            const lat = e.latLng.lat();
+            const lng = e.latLng.lng();
+            const geocoder = new window.google.maps.Geocoder();
+            geocoder.geocode({ location: { lat, lng } }, async (results, status) => {
+              const placeName = (status === 'OK' && results && results[0])
+                ? results[0].formatted_address.split(',').slice(0, 3).join(',')
+                : `Map Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+
+              const clickedLoc = { lat, lng, name: placeName };
+              setDestination(placeName);
+              destLocRef.current = clickedLoc;
+              await drawRoadRouteOnMap(null, clickedLoc);
+            });
+          });
+
+          drawRoadRouteOnMap();
+          return;
+        } catch (e) {}
+      }
+
+      // 2. Leaflet Fallback Map
       if (mapInstance.current) {
         mapInstance.current.remove();
         mapInstance.current = null;
@@ -479,7 +546,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
           {routeInfo.distanceKm !== null && (
             <div style={{
               display: 'flex',
-              justifyContent: 'center',
+              justify: 'center',
               alignItems: 'center',
               gap: '10px',
               background: '#0f172a',
