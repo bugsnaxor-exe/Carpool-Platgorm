@@ -9,6 +9,8 @@ function AdminConsole({ token, user }) {
   useEffect(() => {
     if (token && user && user.role === 'COMPANY_ADMIN') {
       fetchAdminData();
+    } else {
+      setLoading(false);
     }
   }, [token, user]);
 
@@ -36,63 +38,72 @@ function AdminConsole({ token, user }) {
 
   if (!user || user.role !== 'COMPANY_ADMIN') {
     return (
-      <div style={{ padding: '40px 20px', textAlign: 'center' }}>
-        <div style={{ fontSize: '3rem', color: '#ef4444', marginBottom: '16px' }}><i className="fa-solid fa-lock"></i></div>
-        <h3 style={{ fontSize: '1.4rem', fontWeight: '800', marginBottom: '8px' }}>Admin Authorization Required</h3>
-        <p style={{ color: '#94a3b8', fontSize: '0.9rem', maxWidth: '400px', margin: '0 auto 20px auto' }}>
-          You are currently logged in as an Employee account. Switch to an Admin account to access corporate mobility analytics.
+      <div className="card" style={{ padding: '40px 20px', textAlign: 'center' }}>
+        <div style={{ fontSize: '3rem', color: '#e74c3c', marginBottom: '16px' }}>
+          <i className="fa-solid fa-shield-cat"></i>
+        </div>
+        <h3 style={{ fontSize: '1.3rem', fontWeight: '800', marginBottom: '8px', color: '#11281A' }}>Admin Authorization Required</h3>
+        <p style={{ color: '#5D7063', fontSize: '0.9rem', maxWidth: '380px', margin: '0 auto 20px auto', lineHeight: '1.5' }}>
+          You are currently logged in as an Employee account. Switch to an Admin account to access corporate mobility & sustainability analytics.
         </p>
       </div>
     );
   }
 
   if (loading || !analytics) {
-    return <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>Loading Admin Console...</div>;
+    return (
+      <div className="card" style={{ padding: '40px', textAlign: 'center', color: '#0D6E42' }}>
+        <i className="fa-solid fa-circle-notch fa-spin" style={{ fontSize: '2rem', marginBottom: '12px' }}></i>
+        <div style={{ fontWeight: '700' }}>Loading Corporate Mobility Console...</div>
+      </div>
+    );
   }
 
   return (
     <div className="admin-grid">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <div>
-          <h2 style={{ fontSize: '1.6rem', fontWeight: '800' }}>Corporate Mobility Admin Console</h2>
-          <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Acme Corporation Mobility & Sustainability Dashboard</p>
+      <div className="card" style={{ background: '#053B22', color: '#FFFFFF', border: 'none', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h2 style={{ fontSize: '1.4rem', fontWeight: '800', color: '#FFFFFF' }}>Corporate Mobility Admin Console</h2>
+            <p style={{ fontSize: '0.82rem', color: '#A3D9B5', marginTop: '4px' }}>Acme Mobility & Sustainability Dashboard</p>
+          </div>
+          <span className="badge" style={{ background: 'rgba(255,255,255,0.15)', color: '#FFFFFF', padding: '6px 14px', fontSize: '0.82rem', border: '1px solid rgba(255,255,255,0.25)' }}>
+            <i className="fa-solid fa-shield-halved" style={{ color: '#58D68D' }}></i> Verified Enterprise Admin
+          </span>
         </div>
-        <span className="badge badge-purple" style={{ padding: '6px 14px', fontSize: '0.85rem' }}>
-          <i className="fa-solid fa-shield-halved"></i> Enterprise Admin Verified
-        </span>
       </div>
 
-      {/* Analytics KPI Metrics Cards */}
+      {/* Analytics KPI Metrics Grid */}
       <div className="metrics-grid">
         <div className="metric-card">
           <div className="metric-title">Total Employee Trips</div>
-          <div className="metric-value">{analytics.totalTrips}</div>
-          <div style={{ fontSize: '0.75rem', color: '#10b981', marginTop: '4px' }}>
+          <div className="metric-value">{analytics.totalTrips || 0}</div>
+          <div style={{ fontSize: '0.75rem', color: '#0D6E42', marginTop: '4px', fontWeight: '700' }}>
             <i className="fa-solid fa-arrow-up"></i> +14.2% this month
           </div>
         </div>
 
         <div className="metric-card">
-          <div className="metric-title">Total Distance Covered</div>
-          <div className="metric-value" style={{ color: '#3b82f6' }}>{analytics.totalDistanceKm} <span style={{ fontSize: '1rem' }}>km</span></div>
-          <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '4px' }}>Shared commuting mileage</div>
+          <div className="metric-title">Total Shared Mileage</div>
+          <div className="metric-value" style={{ color: '#0D6E42' }}>{analytics.totalDistanceKm || 0} <span style={{ fontSize: '1rem' }}>km</span></div>
+          <div style={{ fontSize: '0.75rem', color: '#5D7063', marginTop: '4px' }}>Shared commuting mileage</div>
         </div>
 
         <div className="metric-card">
           <div className="metric-title">Carbon Offset (CO₂ Saved)</div>
-          <div className="metric-value" style={{ color: '#10b981' }}>{analytics.co2SavedKg} <span style={{ fontSize: '1rem' }}>kg</span></div>
-          <div style={{ fontSize: '0.75rem', color: '#10b981', marginTop: '4px' }}><i className="fa-solid fa-leaf"></i> High Sustainability Rating</div>
+          <div className="metric-value" style={{ color: '#0D6E42' }}>{analytics.co2SavedKg || 0} <span style={{ fontSize: '1rem' }}>kg</span></div>
+          <div style={{ fontSize: '0.75rem', color: '#0D6E42', marginTop: '4px', fontWeight: '700' }}><i className="fa-solid fa-leaf"></i> High Sustainability Rating</div>
         </div>
 
         <div className="metric-card">
           <div className="metric-title">Fuel Conserved</div>
-          <div className="metric-value" style={{ color: '#f59e0b' }}>{analytics.estimatedFuelLiters} <span style={{ fontSize: '1rem' }}>L</span></div>
-          <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '4px' }}>Est. ₹{(analytics.estimatedFuelLiters * 102).toFixed(0)} saved</div>
+          <div className="metric-value" style={{ color: '#0D6E42' }}>{analytics.estimatedFuelLiters || 0} <span style={{ fontSize: '1rem' }}>L</span></div>
+          <div style={{ fontSize: '0.75rem', color: '#5D7063', marginTop: '4px' }}>Est. ₹{((analytics.estimatedFuelLiters || 0) * 102).toFixed(0)} saved</div>
         </div>
       </div>
 
       {/* Employee Roster Table */}
-      <h3 style={{ fontSize: '1.1rem', fontWeight: '700', margin: '24px 0 14px 0' }}>Employee Roster & Security Status</h3>
+      <h3 style={{ fontSize: '1.1rem', fontWeight: '800', margin: '16px 0 12px 0', color: '#11281A' }}>Employee Roster & Security Status</h3>
       <div className="data-table-container">
         <table className="data-table">
           <thead>
@@ -106,26 +117,32 @@ function AdminConsole({ token, user }) {
             </tr>
           </thead>
           <tbody>
-            {employees.map(emp => (
-              <tr key={emp._id}>
-                <td style={{ fontWeight: '600' }}>{emp.name}</td>
-                <td>{emp.email}</td>
-                <td>{emp.mobileNumber}</td>
-                <td><span className={`badge ${emp.role === 'COMPANY_ADMIN' ? 'badge-purple' : 'badge-emerald'}`}>{emp.role}</span></td>
-                <td style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{emp.organizationId}</td>
-                <td>
-                  <span className="badge badge-emerald" title="Zero-Knowledge Scrypt Hashed">
-                    <i className="fa-solid fa-key"></i> Scrypt Salted (Zero-Knowledge Protected)
-                  </span>
-                </td>
+            {employees.length === 0 ? (
+              <tr>
+                <td colSpan="6" style={{ textAlign: 'center', padding: '20px', color: '#8E9F93' }}>No employees registered yet.</td>
               </tr>
-            ))}
+            ) : (
+              employees.map(emp => (
+                <tr key={emp._id}>
+                  <td style={{ fontWeight: '700', color: '#11281A' }}>{emp.name}</td>
+                  <td>{emp.email}</td>
+                  <td>{emp.mobileNumber}</td>
+                  <td><span className={`badge ${emp.role === 'COMPANY_ADMIN' ? 'badge-purple' : 'badge-emerald'}`}>{emp.role}</span></td>
+                  <td style={{ fontSize: '0.8rem', color: '#5D7063' }}>{emp.organizationId || 'ACME'}</td>
+                  <td>
+                    <span className="badge badge-emerald">
+                      <i className="fa-solid fa-key"></i> Scrypt Protected
+                    </span>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
 
       {/* Immutable Audit Logs Viewer */}
-      <h3 style={{ fontSize: '1.1rem', fontWeight: '700', margin: '24px 0 14px 0' }}>Immutable Audit Logs</h3>
+      <h3 style={{ fontSize: '1.1rem', fontWeight: '800', margin: '20px 0 12px 0', color: '#11281A' }}>Immutable Audit Logs</h3>
       <div className="data-table-container">
         <table className="data-table">
           <thead>
@@ -137,14 +154,20 @@ function AdminConsole({ token, user }) {
             </tr>
           </thead>
           <tbody>
-            {auditLogs.map(log => (
-              <tr key={log._id}>
-                <td style={{ fontSize: '0.78rem', color: '#94a3b8' }}>{new Date(log.timestamp).toLocaleString()}</td>
-                <td><span className="badge badge-blue">{log.action}</span></td>
-                <td>{log.targetType}</td>
-                <td style={{ fontSize: '0.85rem' }}>{log.details}</td>
+            {auditLogs.length === 0 ? (
+              <tr>
+                <td colSpan="4" style={{ textAlign: 'center', padding: '20px', color: '#8E9F93' }}>No audit logs generated yet.</td>
               </tr>
-            ))}
+            ) : (
+              auditLogs.map(log => (
+                <tr key={log._id}>
+                  <td style={{ fontSize: '0.78rem', color: '#5D7063' }}>{new Date(log.timestamp).toLocaleString()}</td>
+                  <td><span className="badge badge-emerald">{log.action}</span></td>
+                  <td>{log.targetType}</td>
+                  <td style={{ fontSize: '0.85rem' }}>{log.details}</td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

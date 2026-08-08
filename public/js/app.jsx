@@ -166,7 +166,9 @@ function App() {
           </div>
         ) : (
           /* COMPANY ADMIN WEB DASHBOARD */
-          <AdminConsole token={token} user={user} />
+          <div className="desktop-wrapper">
+            <AdminConsole token={token} user={user} />
+          </div>
         )}
       </div>
     </div>
