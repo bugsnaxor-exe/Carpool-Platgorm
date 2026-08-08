@@ -10,6 +10,7 @@ function AuthScreen({ onAuthSuccess }) {
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regMobile, setRegMobile] = useState('');
+  const [regCompanyCode, setRegCompanyCode] = useState('ACME');
   const [regRole, setRegRole] = useState('EMPLOYEE');
 
   const [error, setError] = useState('');
@@ -51,6 +52,7 @@ function AuthScreen({ onAuthSuccess }) {
           email: regEmail,
           mobileNumber: regMobile,
           password,
+          companyCode: regCompanyCode || 'ACME',
           role: regRole
         })
       });
@@ -138,6 +140,11 @@ function AuthScreen({ onAuthSuccess }) {
           <div className="input-group">
             <label className="input-label">Mobile Number</label>
             <input type="text" className="input-field" placeholder="+919876543210" value={regMobile} onChange={(e) => setRegMobile(e.target.value)} />
+          </div>
+
+          <div className="input-group">
+            <label className="input-label">Company Code (Default: ACME)</label>
+            <input type="text" className="input-field" placeholder="ACME or TECH" value={regCompanyCode} onChange={(e) => setRegCompanyCode(e.target.value)} />
           </div>
 
           <div className="input-group">

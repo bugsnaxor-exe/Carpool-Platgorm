@@ -75,15 +75,23 @@ const login = async (body) => {
 };
 
 const register = async (body) => {
-  const { name, email, mobileNumber, password, companyCode, department } = body;
-
-  if (!name || !email || !password || !companyCode) {
-    return { status: 400, data: { error: 'All fields including company code are required' } };
+  if (!isDBConnected()) {
+    return { 
+      status: 503, 
+      data: { error: 'MongoDB connection pending. Check your Atlas IP whitelist.' } 
+    };
   }
 
-  const org = await Organization.findOne({ code: String(companyCode).trim().toUpperCase() });
+  const { name, email, mobileNumber, password, companyCode, department, role } = body;
+
+  if (!name || (!email && !mobileNumber) || !password) {
+    return { status: 400, data: { error: 'Name, Password, and Email or Phone Number are required' } };
+  }
+
+  const targetCode = companyCode ? String(companyCode).trim().toUpperCase() : 'ACME';
+  let org = await Organization.findOne({ code: targetCode });
   if (!org) {
-    return { status: 400, data: { error: 'Invalid Company Code' } };
+    org = await Organization.findOne() || await Organization.create({ name: 'Acme Corporation', code: 'ACME' });
   }
 
   const existingUser = await User.findOne({
@@ -99,7 +107,7 @@ const register = async (body) => {
     email: email.trim().toLowerCase(),
     mobileNumber: mobileNumber ? mobileNumber.trim() : '',
     password: hashPassword(password),
-    role: 'EMPLOYEE',
+    role: role || 'EMPLOYEE',
     organizationId: org._id,
     department: department || 'Engineering',
     savedPlaces: []
