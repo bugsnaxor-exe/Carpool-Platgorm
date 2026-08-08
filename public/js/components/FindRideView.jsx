@@ -6,6 +6,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
   const [seats, setSeats] = useState(1);
   const [recurring, setRecurring] = useState(false);
   const [fetchingGPS, setFetchingGPS] = useState(false);
+  const [fetchingDestGPS, setFetchingDestGPS] = useState(false);
   const [routingLoading, setRoutingLoading] = useState(false);
 
   const [step, setStep] = useState('SEARCH'); // 'SEARCH' or 'RESULTS'
@@ -21,8 +22,9 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
 
   // Helper: Geocode location string to Lat/Lng via Nominatim
   const geocodeAddress = async (address, defaultLat, defaultLng) => {
+    if (!address || !address.trim()) return { lat: defaultLat, lng: defaultLng, name: 'Location' };
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`);
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address.trim())}`);
       const data = await res.json();
       if (data && data.length > 0) {
         return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), name: data[0].display_name.split(',')[0] };
@@ -38,7 +40,6 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
       const res = await fetch(url);
       const data = await res.json();
       if (data.routes && data.routes.length > 0) {
-        // Map GeoJSON [lng, lat] to Leaflet [lat, lng]
         return data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
       }
     } catch (e) {
@@ -56,6 +57,8 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     const endLoc = await geocodeAddress(destination, 12.8452, 77.6602);
 
     const roadWaypoints = await fetchOSRMRoadRoute(startLoc.lat, startLoc.lng, endLoc.lat, endLoc.lng);
+
+    if (!mapInstance.current) return;
 
     // Remove previous layers
     if (routePolylineRef.current) mapInstance.current.removeLayer(routePolylineRef.current);
@@ -86,9 +89,15 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     setRoutingLoading(false);
   };
 
-  // Initialize Route Preview Map
+  // Safe Leaflet Map Initialization & Re-mounting Fix
   useEffect(() => {
-    if (step === 'SEARCH' && mapRef.current && !mapInstance.current) {
+    if (step === 'SEARCH' && mapRef.current) {
+      // Clean up previous instance to prevent vanishing map on back navigation
+      if (mapInstance.current) {
+        mapInstance.current.remove();
+        mapInstance.current = null;
+      }
+
       mapInstance.current = L.map(mapRef.current).setView([12.9121, 77.6445], 12);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap'
@@ -96,9 +105,16 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
 
       drawRoadRouteOnMap();
     }
+
+    return () => {
+      if (mapInstance.current) {
+        mapInstance.current.remove();
+        mapInstance.current = null;
+      }
+    };
   }, [step]);
 
-  // Actual Real-Time GPS Location Fetching
+  // Actual Real-Time GPS Pickup Location Fetching
   const fetchCurrentLocation = () => {
     if (!navigator.geolocation) {
       alert('Geolocation is not supported by your browser');
@@ -111,7 +127,6 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
       async (position) => {
         const { latitude, longitude } = position.coords;
         try {
-          // Reverse Geocoding via OpenStreetMap API
           const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
           const data = await res.json();
           const placeName = data.display_name
@@ -129,6 +144,41 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
       (error) => {
         setFetchingGPS(false);
         alert(`Could not fetch location: ${error.message}`);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  // Actual Real-Time GPS Destination Location Fetching
+  const fetchDestinationLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser');
+      return;
+    }
+
+    setFetchingDestGPS(true);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+          const data = await res.json();
+          const placeName = data.display_name
+            ? data.display_name.split(',').slice(0, 3).join(',')
+            : `GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
+
+          setDestination(placeName);
+          await drawRoadRouteOnMap();
+        } catch (err) {
+          setDestination(`Destination GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
+        } finally {
+          setFetchingDestGPS(false);
+        }
+      },
+      (error) => {
+        setFetchingDestGPS(false);
+        alert(`Could not fetch destination location: ${error.message}`);
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -205,7 +255,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
               />
             </div>
 
-            {/* Location Shortcuts & Actual GPS Fetcher */}
+            {/* Pickup Location Shortcuts & GPS Fetcher */}
             <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
               <button 
                 type="button" 
@@ -239,7 +289,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
             </div>
 
             <div className="input-group">
-              <label className="input-label"><i className="fa-solid fa-flag-checkered" style={{ color: '#ef4444' }}></i> Destination</label>
+              <label className="input-label"><i className="fa-solid fa-flag-checkered" style={{ color: '#ef4444' }}></i> Destination Location</label>
               <input 
                 type="text" 
                 className="input-field" 
@@ -248,6 +298,39 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                 onBlur={drawRoadRouteOnMap}
                 required 
               />
+            </div>
+
+            {/* Destination Location Shortcuts & GPS Fetcher */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+              <button 
+                type="button" 
+                onClick={fetchDestinationLocation} 
+                disabled={fetchingDestGPS}
+                style={{ 
+                  padding: '6px 12px', 
+                  borderRadius: '16px', 
+                  border: '1px solid #ef4444', 
+                  background: 'rgba(239, 68, 68, 0.15)', 
+                  color: '#f87171', 
+                  fontSize: '0.78rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <i className={`fa-solid ${fetchingDestGPS ? 'fa-spinner fa-spin' : 'fa-location-crosshairs'}`}></i> 
+                {fetchingDestGPS ? 'Fetching Destination...' : 'Use Current GPS as Dest'}
+              </button>
+
+              <button type="button" onClick={async () => { setDestination('Kolkata Airport (CCU)'); await drawRoadRouteOnMap(); }} style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #334155', background: '#1e293b', color: '#94a3b8', fontSize: '0.78rem', cursor: 'pointer' }}>
+                <i className="fa-solid fa-plane-departure"></i> Airport
+              </button>
+
+              <button type="button" onClick={async () => { setDestination('Acme HQ Campus'); await drawRoadRouteOnMap(); }} style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #334155', background: '#1e293b', color: '#94a3b8', fontSize: '0.78rem', cursor: 'pointer' }}>
+                <i className="fa-solid fa-briefcase"></i> HQ Campus
+              </button>
             </div>
 
             <div style={{ display: 'flex', gap: '12px' }}>
