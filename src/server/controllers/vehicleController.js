@@ -1,29 +1,36 @@
-const db = require('../config/db');
+const Vehicle = require('../../../models/Vehicle');
+const User = require('../../../models/User');
 
-const getVehicles = (user) => {
+const getVehicles = async (user) => {
   if (!user) return { status: 401, data: { error: 'Unauthorized' } };
-  const myVehicles = db.vehicles.filter(v => v.userId === user.userId);
-  return { status: 200, data: myVehicles };
+
+  const vehicles = await Vehicle.find({ userId: user._id });
+  return { status: 200, data: vehicles };
 };
 
-const createVehicle = (user, reqData) => {
+const createVehicle = async (user, body) => {
   if (!user) return { status: 401, data: { error: 'Unauthorized' } };
-  const { model, registrationNumber, seatingCapacity, fuelType } = reqData;
-  const newVeh = {
-    _id: 'veh_' + Date.now(),
-    userId: user.userId,
-    organizationId: user.organizationId,
-    model,
-    registrationNumber: registrationNumber.toUpperCase(),
-    seatingCapacity: parseInt(seatingCapacity, 10),
-    fuelType: fuelType || 'PETROL',
+  const { model, registrationNumber, seatingCapacity, fuelType, color } = body;
+
+  if (!model || !registrationNumber || !seatingCapacity) {
+    return { status: 400, data: { error: 'Model, Registration, and Seating capacity are required' } };
+  }
+
+  const dbUser = await User.findById(user._id);
+  if (!dbUser) return { status: 404, data: { error: 'User not found' } };
+
+  const newVehicle = await Vehicle.create({
+    userId: user._id,
+    organizationId: dbUser.organizationId,
+    model: model.trim(),
+    registrationNumber: registrationNumber.trim().toUpperCase(),
+    seatingCapacity: Number(seatingCapacity),
+    fuelType: fuelType || 'EV',
+    color: color || 'Black',
     status: 'APPROVED'
-  };
-  db.vehicles.push(newVeh);
-  return { status: 201, data: newVeh };
+  });
+
+  return { status: 201, data: newVehicle };
 };
 
-module.exports = {
-  getVehicles,
-  createVehicle
-};
+module.exports = { getVehicles, createVehicle };

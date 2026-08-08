@@ -1,8 +1,11 @@
+require('dotenv').config();
+
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
 
+const { connectDB } = require('./src/server/config/db');
 const { verifyToken } = require('./src/server/utils/security');
 const authController = require('./src/server/controllers/authController');
 const vehicleController = require('./src/server/controllers/vehicleController');
@@ -12,6 +15,9 @@ const walletController = require('./src/server/controllers/walletController');
 const adminController = require('./src/server/controllers/adminController');
 
 const PORT = process.env.PORT || 3000;
+
+// Initialize Database Connection
+connectDB();
 
 const mimeTypes = {
   '.html': 'text/html',
@@ -65,99 +71,104 @@ const server = http.createServer(async (req, res) => {
   const token = authHeader && authHeader.split(' ')[1];
   const user = verifyToken(token);
 
-  // Modular Controller Routing
-  if (pathname === '/api/auth/login' && method === 'POST') {
-    const result = authController.login(await parseBody(req));
-    return sendJson(res, result.status, result.data);
-  }
+  try {
+    // Modular Async Mongoose Controller Routing
+    if (pathname === '/api/auth/login' && method === 'POST') {
+      const result = await authController.login(await parseBody(req));
+      return sendJson(res, result.status, result.data);
+    }
 
-  if (pathname === '/api/auth/register' && method === 'POST') {
-    const result = authController.register(await parseBody(req));
-    return sendJson(res, result.status, result.data);
-  }
+    if (pathname === '/api/auth/register' && method === 'POST') {
+      const result = await authController.register(await parseBody(req));
+      return sendJson(res, result.status, result.data);
+    }
 
-  if (pathname === '/api/auth/me' && method === 'GET') {
-    const result = authController.getMe(user);
-    return sendJson(res, result.status, result.data);
-  }
+    if (pathname === '/api/auth/me' && method === 'GET') {
+      const result = await authController.getMe(user);
+      return sendJson(res, result.status, result.data);
+    }
 
-  if (pathname === '/api/vehicles' && method === 'GET') {
-    const result = vehicleController.getVehicles(user);
-    return sendJson(res, result.status, result.data);
-  }
+    if (pathname === '/api/vehicles' && method === 'GET') {
+      const result = await vehicleController.getVehicles(user);
+      return sendJson(res, result.status, result.data);
+    }
 
-  if (pathname === '/api/vehicles' && method === 'POST') {
-    const result = vehicleController.createVehicle(user, await parseBody(req));
-    return sendJson(res, result.status, result.data);
-  }
+    if (pathname === '/api/vehicles' && method === 'POST') {
+      const result = await vehicleController.createVehicle(user, await parseBody(req));
+      return sendJson(res, result.status, result.data);
+    }
 
-  if (pathname === '/api/rides/publish' && method === 'POST') {
-    const result = rideController.publishRide(user, await parseBody(req));
-    return sendJson(res, result.status, result.data);
-  }
+    if (pathname === '/api/rides/publish' && method === 'POST') {
+      const result = await rideController.publishRide(user, await parseBody(req));
+      return sendJson(res, result.status, result.data);
+    }
 
-  if (pathname === '/api/rides/search' && method === 'POST') {
-    const result = rideController.searchRides(user, await parseBody(req));
-    return sendJson(res, result.status, result.data);
-  }
+    if (pathname === '/api/rides/search' && method === 'POST') {
+      const result = await rideController.searchRides(user, await parseBody(req));
+      return sendJson(res, result.status, result.data);
+    }
 
-  if (pathname === '/api/trips/book' && method === 'POST') {
-    const result = tripController.bookTrip(user, await parseBody(req));
-    return sendJson(res, result.status, result.data);
-  }
+    if (pathname === '/api/trips/book' && method === 'POST') {
+      const result = await tripController.bookTrip(user, await parseBody(req));
+      return sendJson(res, result.status, result.data);
+    }
 
-  if (pathname === '/api/trips/my-trips' && method === 'GET') {
-    const result = tripController.getMyTrips(user);
-    return sendJson(res, result.status, result.data);
-  }
+    if (pathname === '/api/trips/my-trips' && method === 'GET') {
+      const result = await tripController.getMyTrips(user);
+      return sendJson(res, result.status, result.data);
+    }
 
-  if (pathname.startsWith('/api/trips/') && pathname.endsWith('/status') && method === 'PATCH') {
-    const tripId = pathname.split('/')[3];
-    const result = tripController.updateTripStatus(user, tripId, await parseBody(req));
-    return sendJson(res, result.status, result.data);
-  }
+    if (pathname.startsWith('/api/trips/') && pathname.endsWith('/status') && method === 'PATCH') {
+      const tripId = pathname.split('/')[3];
+      const result = await tripController.updateTripStatus(user, tripId, await parseBody(req));
+      return sendJson(res, result.status, result.data);
+    }
 
-  if (pathname.startsWith('/api/trips/') && pathname.endsWith('/sos') && method === 'POST') {
-    const tripId = pathname.split('/')[3];
-    const result = tripController.triggerSOS(user, tripId, await parseBody(req));
-    return sendJson(res, result.status, result.data);
-  }
+    if (pathname.startsWith('/api/trips/') && pathname.endsWith('/sos') && method === 'POST') {
+      const tripId = pathname.split('/')[3];
+      const result = await tripController.triggerSOS(user, tripId, await parseBody(req));
+      return sendJson(res, result.status, result.data);
+    }
 
-  if (pathname.startsWith('/api/trips/') && pathname.endsWith('/receipt') && method === 'GET') {
-    const tripId = pathname.split('/')[3];
-    const result = tripController.getReceipt(user, tripId);
-    return sendJson(res, result.status, result.data);
-  }
+    if (pathname.startsWith('/api/trips/') && pathname.endsWith('/receipt') && method === 'GET') {
+      const tripId = pathname.split('/')[3];
+      const result = await tripController.getReceipt(user, tripId);
+      return sendJson(res, result.status, result.data);
+    }
 
-  if (pathname === '/api/wallet/balance' && method === 'GET') {
-    const result = walletController.getWallet(user);
-    return sendJson(res, result.status, result.data);
-  }
+    if (pathname === '/api/wallet/balance' && method === 'GET') {
+      const result = await walletController.getWallet(user);
+      return sendJson(res, result.status, result.data);
+    }
 
-  if (pathname === '/api/wallet/recharge' && method === 'POST') {
-    const result = walletController.rechargeWallet(user, await parseBody(req));
-    return sendJson(res, result.status, result.data);
-  }
+    if (pathname === '/api/wallet/recharge' && method === 'POST') {
+      const result = await walletController.rechargeWallet(user, await parseBody(req));
+      return sendJson(res, result.status, result.data);
+    }
 
-  if (pathname.startsWith('/api/trips/') && pathname.endsWith('/payment') && method === 'POST') {
-    const tripId = pathname.split('/')[3];
-    const result = walletController.payTrip(user, tripId, await parseBody(req));
-    return sendJson(res, result.status, result.data);
-  }
+    if (pathname.startsWith('/api/trips/') && pathname.endsWith('/payment') && method === 'POST') {
+      const tripId = pathname.split('/')[3];
+      const result = await walletController.payTrip(user, tripId, await parseBody(req));
+      return sendJson(res, result.status, result.data);
+    }
 
-  if (pathname === '/api/admin/employees' && method === 'GET') {
-    const result = adminController.getEmployees(user);
-    return sendJson(res, result.status, result.data);
-  }
+    if (pathname === '/api/admin/employees' && method === 'GET') {
+      const result = await adminController.getEmployees(user);
+      return sendJson(res, result.status, result.data);
+    }
 
-  if (pathname === '/api/admin/analytics' && method === 'GET') {
-    const result = adminController.getAnalytics(user);
-    return sendJson(res, result.status, result.data);
-  }
+    if (pathname === '/api/admin/analytics' && method === 'GET') {
+      const result = await adminController.getAnalytics(user);
+      return sendJson(res, result.status, result.data);
+    }
 
-  if (pathname === '/api/admin/audit-logs' && method === 'GET') {
-    const result = adminController.getAuditLogs(user);
-    return sendJson(res, result.status, result.data);
+    if (pathname === '/api/admin/audit-logs' && method === 'GET') {
+      const result = await adminController.getAuditLogs(user);
+      return sendJson(res, result.status, result.data);
+    }
+  } catch (err) {
+    console.error(`[Server Error] Route Execution Failed: ${err.message}`, err);
+    return sendJson(res, 500, { error: 'Internal Server Error', details: err.message });
   }
 
   // Static File Serving
@@ -185,7 +196,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`====================================================`);
-  console.log(` MODULAR CARPOOL PLATFORM RUNNING ON PORT ${PORT}`);
+  console.log(` MONGODB-POWERED CARPOOL PLATFORM RUNNING ON PORT ${PORT}`);
   console.log(` Endpoints: Auth, Rides, Trips, SOS, Wallet, Receipts, Admin`);
   console.log(` Ready at http://localhost:${PORT}`);
   console.log(`====================================================`);

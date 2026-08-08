@@ -1,53 +1,94 @@
-const db = require('../config/db');
+const Wallet = require('../../../models/Wallet');
+const Transaction = require('../../../models/Transaction');
+const Trip = require('../../../models/Trip');
 
-const getWallet = (user) => {
+const getWallet = async (user) => {
   if (!user) return { status: 401, data: { error: 'Unauthorized' } };
-  const balance = db.wallets[user.userId] || 0;
-  const txns = db.transactions.filter(t => t.userId === user.userId);
-  return { status: 200, data: { balance, transactions: txns } };
-};
 
-const rechargeWallet = (user, reqData) => {
-  if (!user) return { status: 401, data: { error: 'Unauthorized' } };
-  const { amount } = reqData;
-  const rechargeAmt = parseFloat(amount);
-  db.wallets[user.userId] = (db.wallets[user.userId] || 0) + rechargeAmt;
-
-  const txn = {
-    _id: 'txn_' + Date.now(),
-    userId: user.userId,
-    amount: rechargeAmt,
-    type: 'CREDIT',
-    paymentMethod: 'RAZORPAY_SANDBOX',
-    description: 'Wallet Recharge via Razorpay Sandbox',
-    status: 'SUCCESS',
-    createdAt: new Date().toISOString()
-  };
-  db.transactions.push(txn);
-  return { status: 200, data: { message: 'Recharged', balance: db.wallets[user.userId], transaction: txn } };
-};
-
-const payTrip = (user, tripId, reqData) => {
-  if (!user) return { status: 401, data: { error: 'Unauthorized' } };
-  const { method: payMethod } = reqData;
-  const trip = db.trips.find(t => t._id === tripId);
-  if (!trip) return { status: 404, data: { error: 'Trip not found' } };
-
-  const fare = trip.totalFare;
-  if (payMethod === 'WALLET') {
-    const current = db.wallets[user.userId] || 0;
-    if (current < fare) return { status: 400, data: { error: `Insufficient wallet balance (₹${current.toFixed(2)}).` } };
-    db.wallets[user.userId] -= fare;
-    db.wallets[trip.driverId] = (db.wallets[trip.driverId] || 0) + fare;
+  let wallet = await Wallet.findOne({ userId: user._id });
+  if (!wallet) {
+    wallet = await Wallet.create({ userId: user._id, balance: 500 });
   }
 
-  trip.paymentStatus = 'COMPLETED';
-  trip.status = 'COMPLETED';
-  return { status: 200, data: { message: 'Payment successful', trip, newBalance: db.wallets[user.userId] } };
+  const history = await Transaction.find({ userId: user._id }).sort({ createdAt: -1 }).limit(20);
+
+  return {
+    status: 200,
+    data: {
+      balance: wallet.balance,
+      history
+    }
+  };
 };
 
-module.exports = {
-  getWallet,
-  rechargeWallet,
-  payTrip
+const rechargeWallet = async (user, body) => {
+  if (!user) return { status: 401, data: { error: 'Unauthorized' } };
+  const { amount } = body;
+
+  if (!amount || amount <= 0) {
+    return { status: 400, data: { error: 'Invalid recharge amount' } };
+  }
+
+  let wallet = await Wallet.findOne({ userId: user._id });
+  if (!wallet) {
+    wallet = await Wallet.create({ userId: user._id, balance: 0 });
+  }
+
+  wallet.balance += Number(amount);
+  await wallet.save();
+
+  const transaction = await Transaction.create({
+    userId: user._id,
+    amount: Number(amount),
+    type: 'RECHARGE',
+    paymentMethod: 'RAZORPAY_UPI_SANDBOX',
+    referenceId: `PAY-${Date.now()}`,
+    status: 'SUCCESS'
+  });
+
+  return {
+    status: 200,
+    data: {
+      newBalance: wallet.balance,
+      transaction
+    }
+  };
 };
+
+const payTrip = async (user, tripId, body) => {
+  if (!user) return { status: 401, data: { error: 'Unauthorized' } };
+
+  const trip = await Trip.findById(tripId);
+  if (!trip) return { status: 404, data: { error: 'Trip not found' } };
+
+  let wallet = await Wallet.findOne({ userId: user._id });
+  if (!wallet || wallet.balance < trip.totalFare) {
+    return { status: 400, data: { error: 'Insufficient wallet balance' } };
+  }
+
+  wallet.balance -= trip.totalFare;
+  await wallet.save();
+
+  trip.paymentStatus = 'PAID';
+  await trip.save();
+
+  const transaction = await Transaction.create({
+    userId: user._id,
+    amount: trip.totalFare,
+    type: 'TRIP_PAYMENT',
+    paymentMethod: 'CORPORATE_WALLET',
+    referenceId: `TRIP-PAY-${trip._id}`,
+    status: 'SUCCESS'
+  });
+
+  return {
+    status: 200,
+    data: {
+      message: 'Payment completed successfully',
+      newBalance: wallet.balance,
+      transaction
+    }
+  };
+};
+
+module.exports = { getWallet, rechargeWallet, payTrip };

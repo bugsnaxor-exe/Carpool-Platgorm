@@ -1,82 +1,157 @@
-const db = require('../config/db');
+const User = require('../../../models/User');
+const Organization = require('../../../models/Organization');
+const Wallet = require('../../../models/Wallet');
+const AuditLog = require('../../../models/AuditLog');
 const { hashPassword, verifyPassword, generateToken } = require('../utils/security');
 
-// Dual Email / Mobile Login
-const login = (reqData) => {
-  const { identifier, password } = reqData;
+const login = async (body) => {
+  const { identifier, password } = body;
+
   if (!identifier || !password) {
-    return { status: 400, data: { error: 'Provide Email/Mobile and Password' } };
+    return { status: 400, data: { error: 'Email or Mobile Number and password are required' } };
   }
 
-  const normalized = identifier.trim().toLowerCase();
-  const foundUser = db.users.find(u =>
-    (u.email && u.email.toLowerCase() === normalized) ||
-    (u.mobileNumber && u.mobileNumber.trim() === identifier.trim())
-  );
+  const rawId = String(identifier).trim();
+  const cleanId = rawId.toLowerCase();
+  const digitsOnly = rawId.replace(/\D/g, '');
 
-  if (!foundUser || !verifyPassword(password, foundUser.password)) {
-    return { status: 401, data: { error: 'Invalid Email/Mobile or Password' } };
+  const user = await User.findOne({
+    $or: [
+      { email: cleanId },
+      { mobileNumber: rawId },
+      { mobileNumber: `+${digitsOnly}` },
+      { mobileNumber: digitsOnly }
+    ]
+  }).populate('organizationId');
+
+  if (!user || !verifyPassword(password, user.password)) {
+    return { status: 401, data: { error: 'Invalid credentials' } };
   }
 
   const token = generateToken({
-    userId: foundUser._id,
-    name: foundUser.name,
-    role: foundUser.role,
-    organizationId: foundUser.organizationId
+    _id: user._id.toString(),
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    organizationId: user.organizationId ? user.organizationId._id.toString() : null
   });
 
-  const { password: _, ...userWithoutPassword } = foundUser;
-  return { status: 200, data: { message: 'Login successful', token, user: userWithoutPassword } };
+  const wallet = await Wallet.findOne({ userId: user._id });
+
+  await AuditLog.create({
+    performedBy: user._id,
+    action: 'USER_LOGIN',
+    targetType: 'User',
+    details: `User ${user.email} logged in`,
+    organizationId: user.organizationId ? user.organizationId._id : null
+  });
+
+  return {
+    status: 200,
+    data: {
+      user: {
+        _id: user._id.toString(),
+        name: user.name,
+        email: user.email,
+        mobileNumber: user.mobileNumber,
+        role: user.role,
+        organizationId: user.organizationId ? user.organizationId._id.toString() : null,
+        department: user.department,
+        savedPlaces: user.savedPlaces,
+        walletBalance: wallet ? wallet.balance : 0
+      },
+      token
+    }
+  };
 };
 
-// Registration
-const register = (reqData) => {
-  const { name, email, mobileNumber, password, role, department } = reqData;
-  if (!name || (!email && !mobileNumber) || !password) {
-    return { status: 400, data: { error: 'Name, Email/Mobile, and Password required' } };
+const register = async (body) => {
+  const { name, email, mobileNumber, password, companyCode, department } = body;
+
+  if (!name || !email || !password || !companyCode) {
+    return { status: 400, data: { error: 'All fields including company code are required' } };
   }
 
-  const newUser = {
-    _id: 'user_' + Date.now(),
-    name,
-    email: email ? email.toLowerCase() : null,
-    mobileNumber: mobileNumber || null,
-    password: hashPassword(password),
-    role: role === 'COMPANY_ADMIN' ? 'COMPANY_ADMIN' : 'EMPLOYEE',
-    organizationId: 'org_1',
-    department: department || 'General',
-    savedPlaces: [
-      { label: 'Home', address: 'Bangalore City', lat: 12.9716, lng: 77.5946 },
-      { label: 'Office', address: 'Acme Campus', lat: 12.8452, lng: 77.6602 }
-    ],
-    createdAt: new Date().toISOString()
-  };
+  const org = await Organization.findOne({ code: String(companyCode).trim().toUpperCase() });
+  if (!org) {
+    return { status: 400, data: { error: 'Invalid Company Code' } };
+  }
 
-  db.users.push(newUser);
-  db.wallets[newUser._id] = 500;
+  const existingUser = await User.findOne({
+    $or: [{ email: email.trim().toLowerCase() }, { mobileNumber: mobileNumber ? mobileNumber.trim() : '' }]
+  });
+
+  if (existingUser) {
+    return { status: 400, data: { error: 'User with this email or phone already exists' } };
+  }
+
+  const newUser = await User.create({
+    name: name.trim(),
+    email: email.trim().toLowerCase(),
+    mobileNumber: mobileNumber ? mobileNumber.trim() : '',
+    password: hashPassword(password),
+    role: 'EMPLOYEE',
+    organizationId: org._id,
+    department: department || 'Engineering',
+    savedPlaces: []
+  });
+
+  await Wallet.create({ userId: newUser._id, balance: 500 });
 
   const token = generateToken({
-    userId: newUser._id,
+    _id: newUser._id.toString(),
+    email: newUser.email,
     name: newUser.name,
     role: newUser.role,
-    organizationId: newUser.organizationId
+    organizationId: org._id.toString()
   });
 
-  const { password: _, ...userWithoutPassword } = newUser;
-  return { status: 201, data: { message: 'Registration successful', token, user: userWithoutPassword } };
+  return {
+    status: 201,
+    data: {
+      user: {
+        _id: newUser._id.toString(),
+        name: newUser.name,
+        email: newUser.email,
+        mobileNumber: newUser.mobileNumber,
+        role: newUser.role,
+        organizationId: org._id.toString(),
+        department: newUser.department,
+        savedPlaces: [],
+        walletBalance: 500
+      },
+      token
+    }
+  };
 };
 
-// Current Profile
-const getMe = (user) => {
-  if (!user) return { status: 401, data: { error: 'Unauthorized' } };
-  const profile = db.users.find(u => u._id === user.userId);
-  if (!profile) return { status: 404, data: { error: 'User not found' } };
-  const { password: _, ...userWithoutPassword } = profile;
-  return { status: 200, data: { user: userWithoutPassword, walletBalance: db.wallets[user.userId] || 0 } };
+const getMe = async (user) => {
+  if (!user) {
+    return { status: 401, data: { error: 'Unauthorized' } };
+  }
+
+  const dbUser = await User.findById(user._id).populate('organizationId');
+  if (!dbUser) {
+    return { status: 404, data: { error: 'User not found' } };
+  }
+
+  const wallet = await Wallet.findOne({ userId: dbUser._id });
+
+  return {
+    status: 200,
+    data: {
+      _id: dbUser._id.toString(),
+      name: dbUser.name,
+      email: dbUser.email,
+      mobileNumber: dbUser.mobileNumber,
+      role: dbUser.role,
+      organizationId: dbUser.organizationId ? dbUser.organizationId._id.toString() : null,
+      organizationName: dbUser.organizationId ? dbUser.organizationId.name : '',
+      department: dbUser.department,
+      savedPlaces: dbUser.savedPlaces,
+      walletBalance: wallet ? wallet.balance : 0
+    }
+  };
 };
 
-module.exports = {
-  login,
-  register,
-  getMe
-};
+module.exports = { login, register, getMe };

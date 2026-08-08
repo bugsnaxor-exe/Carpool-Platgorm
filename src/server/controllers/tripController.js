@@ -1,123 +1,131 @@
-const db = require('../config/db');
+const Trip = require('../../../models/Trip');
+const Ride = require('../../../models/Ride');
+const User = require('../../../models/User');
 
-const bookTrip = (user, reqData) => {
+const bookTrip = async (user, body) => {
   if (!user) return { status: 401, data: { error: 'Unauthorized' } };
-  const { rideId, seatsBooked } = reqData;
-  const ride = db.rides.find(r => r._id === rideId);
-  if (!ride || ride.status !== 'OPEN') return { status: 404, data: { error: 'Ride unavailable' } };
+  const { rideId, seatsBooked = 1 } = body;
 
-  const seats = parseInt(seatsBooked, 10) || 1;
-  ride.availableSeats -= seats;
-  if (ride.availableSeats === 0) ride.status = 'IN_PROGRESS';
+  const ride = await Ride.findById(rideId);
+  if (!ride || ride.status !== 'OPEN') {
+    return { status: 400, data: { error: 'Ride is no longer available' } };
+  }
 
-  const co2SavedKg = (14.5 * 0.12 * seats).toFixed(2);
+  if (ride.availableSeats < seatsBooked) {
+    return { status: 400, data: { error: `Only ${ride.availableSeats} seat(s) available` } };
+  }
 
-  const newTrip = {
-    _id: 'trip_' + Date.now(),
+  if (ride.driverId.toString() === user._id.toString()) {
+    return { status: 400, data: { error: 'You cannot book your own ride' } };
+  }
+
+  ride.availableSeats -= seatsBooked;
+  await ride.save();
+
+  const totalFare = ride.farePerSeat * seatsBooked;
+  const dbUser = await User.findById(user._id);
+
+  const trip = await Trip.create({
     rideId: ride._id,
+    passengerId: user._id,
     driverId: ride.driverId,
-    driverName: ride.driverName,
-    passengerId: user.userId,
-    passengerName: user.name,
-    vehicleId: ride.vehicleId,
-    vehicleModel: ride.vehicleModel,
-    organizationId: user.organizationId,
-    seatsBooked: seats,
-    totalFare: ride.farePerSeat * seats,
-    co2SavedKg: parseFloat(co2SavedKg),
-    pickupLocation: ride.pickupLocation,
-    destinationLocation: ride.destinationLocation,
-    waypoints: ride.waypoints || [],
+    organizationId: dbUser.organizationId,
+    seatsBooked: Number(seatsBooked),
+    totalFare,
     status: 'BOOKED',
-    paymentStatus: 'PENDING',
-    paymentMethod: 'WALLET',
-    sosAlert: false,
-    createdAt: new Date().toISOString()
-  };
-  db.trips.push(newTrip);
-
-  db.auditLogs.push({
-    _id: 'log_' + Date.now(),
-    performedBy: user.userId,
-    action: 'BOOK_TRIP',
-    targetType: 'Trip',
-    details: `Booked ${seats} seat(s) for ₹${newTrip.totalFare} (${co2SavedKg}kg CO₂ saved)`,
-    timestamp: new Date().toISOString()
+    paymentStatus: 'UNPAID',
+    sosAlerts: []
   });
 
-  return { status: 201, data: newTrip };
+  return { status: 201, data: trip };
 };
 
-const getMyTrips = (user) => {
+const getMyTrips = async (user) => {
   if (!user) return { status: 401, data: { error: 'Unauthorized' } };
-  const myTrips = db.trips.filter(t => t.passengerId === user.userId || t.driverId === user.userId);
-  return { status: 200, data: myTrips };
+
+  const trips = await Trip.find({
+    $or: [{ passengerId: user._id }, { driverId: user._id }]
+  })
+    .populate('rideId')
+    .populate('passengerId', 'name email mobileNumber')
+    .populate('driverId', 'name email mobileNumber')
+    .sort({ createdAt: -1 });
+
+  return { status: 200, data: trips };
 };
 
-const updateTripStatus = (user, tripId, reqData) => {
+const updateTripStatus = async (user, tripId, body) => {
   if (!user) return { status: 401, data: { error: 'Unauthorized' } };
-  const { status } = reqData;
-  const trip = db.trips.find(t => t._id === tripId);
+  const { status } = body;
+
+  const trip = await Trip.findById(tripId);
   if (!trip) return { status: 404, data: { error: 'Trip not found' } };
+
+  if (trip.driverId.toString() !== user._id.toString() && trip.passengerId.toString() !== user._id.toString()) {
+    return { status: 403, data: { error: 'Forbidden' } };
+  }
+
   trip.status = status;
+  await trip.save();
+
+  if (status === 'IN_TRANSIT') {
+    await Ride.findByIdAndUpdate(trip.rideId, { status: 'IN_PROGRESS' });
+  } else if (status === 'COMPLETED') {
+    await Ride.findByIdAndUpdate(trip.rideId, { status: 'COMPLETED' });
+  }
+
   return { status: 200, data: trip };
 };
 
-const triggerSOS = (user, tripId, reqData) => {
+const triggerSOS = async (user, tripId, body) => {
   if (!user) return { status: 401, data: { error: 'Unauthorized' } };
-  const trip = db.trips.find(t => t._id === tripId);
+
+  const trip = await Trip.findById(tripId);
   if (!trip) return { status: 404, data: { error: 'Trip not found' } };
 
-  trip.sosAlert = true;
-  const sosEvent = {
-    _id: 'sos_' + Date.now(),
-    tripId: trip._id,
-    triggeredBy: user.userId,
-    userName: user.name,
-    lat: reqData.lat || 12.9279,
-    lng: reqData.lng || 77.6772,
-    timestamp: new Date().toISOString()
-  };
-
-  db.auditLogs.push({
-    _id: 'log_' + Date.now(),
-    performedBy: user.userId,
-    action: 'EMERGENCY_SOS_TRIGGERED',
-    targetType: 'Safety',
-    details: `CRITICAL: Emergency SOS activated by ${user.name} during trip ${trip._id} at GPS (${sosEvent.lat}, ${sosEvent.lng})`,
-    timestamp: new Date().toISOString()
+  const { lat, lng } = body || {};
+  trip.sosAlerts.push({
+    triggeredBy: user._id,
+    lat: lat || 12.9279,
+    lng: lng || 77.6772,
+    timestamp: new Date()
   });
 
-  return { status: 200, data: { message: 'EMERGENCY SOS ALERT ACTIVATED! Corporate Security & Admin Notified.', sosEvent } };
+  await trip.save();
+
+  return {
+    status: 200,
+    data: {
+      message: 'EMERGENCY SOS ALERT BROADCASTED TO SECURITY & CORPORATE ADMINS',
+      sosAlert: trip.sosAlerts[trip.sosAlerts.length - 1]
+    }
+  };
 };
 
-const getReceipt = (user, tripId) => {
+const getReceipt = async (user, tripId) => {
   if (!user) return { status: 401, data: { error: 'Unauthorized' } };
-  const trip = db.trips.find(t => t._id === tripId);
+
+  const trip = await Trip.findById(tripId)
+    .populate('rideId')
+    .populate('passengerId', 'name email mobileNumber')
+    .populate('driverId', 'name email mobileNumber');
+
   if (!trip) return { status: 404, data: { error: 'Trip not found' } };
 
-  const receipt = {
-    receiptNumber: 'RCP-' + trip._id.toUpperCase(),
-    issueDate: new Date().toLocaleDateString(),
-    passengerName: trip.passengerName,
-    driverName: trip.driverName,
-    vehicle: trip.vehicleModel,
-    pickup: trip.pickupLocation.name || trip.pickupLocation,
-    destination: trip.destinationLocation.name || trip.destinationLocation,
-    seats: trip.seatsBooked,
-    fareAmount: `₹${trip.totalFare.toFixed(2)}`,
-    co2Saved: `${trip.co2SavedKg} kg`,
-    paymentStatus: trip.paymentStatus,
-    organization: 'Acme Corporation'
+  return {
+    status: 200,
+    data: {
+      receiptId: `REC-${trip._id.toString().slice(-6).toUpperCase()}`,
+      tripId: trip._id,
+      seatsBooked: trip.seatsBooked,
+      totalFare: trip.totalFare,
+      paymentStatus: trip.paymentStatus,
+      passengerName: trip.passengerId ? trip.passengerId.name : 'Employee',
+      driverName: trip.driverId ? trip.driverId.name : 'Driver',
+      vehicleModel: trip.rideId ? trip.rideId.vehicleModel : 'Vehicle',
+      issuedAt: new Date().toISOString()
+    }
   };
-
-  return { status: 200, data: receipt };
 };
 
-module.exports = {
-  bookTrip,
-  getMyTrips,
-  updateTripStatus,
-  triggerSOS,
-  getReceipt
-};
+module.exports = { bookTrip, getMyTrips, updateTripStatus, triggerSOS, getReceipt };
