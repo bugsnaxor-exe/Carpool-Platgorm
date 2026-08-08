@@ -728,14 +728,30 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
         </form>
       ) : (
         <div>
-          <button onClick={() => setStep('SEARCH')} style={{ background: 'none', border: 'none', color: '#10b981', cursor: 'pointer', marginBottom: '12px', fontSize: '0.85rem', fontWeight: '700' }}>
+          <button onClick={() => setStep('SEARCH')} style={{ background: 'none', border: 'none', color: '#0D6E42', cursor: 'pointer', marginBottom: '14px', fontSize: '0.85rem', fontWeight: '700' }}>
             <i className="fa-solid fa-arrow-left"></i> Modify Search Criteria
           </button>
 
-          {rides.length === 0 ? (
-            <div className="card" style={{ textAlign: 'center', padding: '30px' }}>
-              <i className="fa-solid fa-car-burst" style={{ fontSize: '2rem', color: '#64748b', marginBottom: '12px' }}></i>
-              <p style={{ color: '#94a3b8' }}>No co-worker rides found matching your exact route.</p>
+          {loading ? (
+            <div>
+              {[1, 2, 3].map(i => (
+                <div key={i} className="skeleton-card">
+                  <div className="skeleton-header">
+                    <div className="skeleton skeleton-avatar"></div>
+                    <div className="skeleton-body">
+                      <div className="skeleton skeleton-line medium"></div>
+                      <div className="skeleton skeleton-line short"></div>
+                    </div>
+                  </div>
+                  <div className="skeleton skeleton-block"></div>
+                  <div className="skeleton skeleton-button"></div>
+                </div>
+              ))}
+            </div>
+          ) : rides.length === 0 ? (
+            <div className="card" style={{ textAlign: 'center', padding: '35px 20px' }}>
+              <i className="fa-solid fa-car-burst" style={{ fontSize: '2.2rem', color: '#8E9F93', marginBottom: '12px' }}></i>
+              <p style={{ color: '#5D7063', fontWeight: '500' }}>No co-worker rides found matching your exact route.</p>
             </div>
           ) : (
             rides.map(ride => (

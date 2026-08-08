@@ -40,7 +40,21 @@ function MyTripsView({ token, walletBalance, setWalletBalance }) {
       <h3 style={{ fontSize: '1.2rem', fontWeight: '800', marginBottom: '14px' }}>My Trips</h3>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>Loading your trips...</div>
+        <div>
+          {[1, 2, 3].map(i => (
+            <div key={i} className="skeleton-card">
+              <div className="skeleton-header">
+                <div className="skeleton skeleton-avatar"></div>
+                <div className="skeleton-body">
+                  <div className="skeleton skeleton-line medium"></div>
+                  <div className="skeleton skeleton-line short"></div>
+                </div>
+              </div>
+              <div className="skeleton skeleton-block"></div>
+              <div className="skeleton skeleton-button"></div>
+            </div>
+          ))}
+        </div>
       ) : trips.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: '30px' }}>
           <i className="fa-solid fa-route" style={{ fontSize: '2rem', color: '#64748b', marginBottom: '12px' }}></i>

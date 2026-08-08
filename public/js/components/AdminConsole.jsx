@@ -52,9 +52,19 @@ function AdminConsole({ token, user }) {
 
   if (loading || !analytics) {
     return (
-      <div className="card" style={{ padding: '40px', textAlign: 'center', color: '#0D6E42' }}>
-        <i className="fa-solid fa-circle-notch fa-spin" style={{ fontSize: '2rem', marginBottom: '12px' }}></i>
-        <div style={{ fontWeight: '700' }}>Loading Corporate Mobility Console...</div>
+      <div>
+        <div className="metrics-grid">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="skeleton-card" style={{ height: '100px' }}>
+              <div className="skeleton skeleton-line short"></div>
+              <div className="skeleton skeleton-line medium" style={{ height: '22px', marginTop: '10px' }}></div>
+            </div>
+          ))}
+        </div>
+        <div className="skeleton-card" style={{ height: '200px' }}>
+          <div className="skeleton skeleton-line medium"></div>
+          <div className="skeleton skeleton-block" style={{ height: '120px', marginTop: '12px' }}></div>
+        </div>
       </div>
     );
   }

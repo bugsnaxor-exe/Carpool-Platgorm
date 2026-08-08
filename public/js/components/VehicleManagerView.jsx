@@ -7,6 +7,7 @@ function VehicleManagerView({ token }) {
   const [capacity, setCapacity] = useState(4);
   const [fuelType, setFuelType] = useState('ELECTRIC');
   const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(true);
 
   useEffect(() => {
     fetchVehicles();
@@ -19,7 +20,10 @@ function VehicleManagerView({ token }) {
       });
       const data = await res.json();
       setVehicles(data);
-    } catch (err) {}
+    } catch (err) {
+    } finally {
+      setFetching(false);
+    }
   };
 
   const handleAddVehicle = async (e) => {
@@ -58,16 +62,16 @@ function VehicleManagerView({ token }) {
       <h3 style={{ fontSize: '1.2rem', fontWeight: '800', marginBottom: '14px' }}>My Vehicles</h3>
 
       <div className="card" style={{ marginBottom: '16px' }}>
-        <h4 style={{ fontSize: '0.95rem', fontWeight: '700', marginBottom: '12px' }}>Register New Vehicle</h4>
+        <h4 style={{ fontSize: '0.95rem', fontWeight: '800', marginBottom: '12px', color: '#11281A' }}>Add New Vehicle</h4>
         <form onSubmit={handleAddVehicle}>
           <div className="input-group">
-            <label className="input-label">Vehicle Model</label>
-            <input type="text" className="input-field" placeholder="e.g. Tata Nexon EV" value={model} onChange={(e) => setModel(e.target.value)} required />
+            <label className="input-label">Vehicle Model & Name</label>
+            <input type="text" className="input-field" value={model} onChange={(e) => setModel(e.target.value)} placeholder="e.g. Tata Nexon EV / Honda City" required />
           </div>
 
           <div className="input-group">
             <label className="input-label">Registration Number</label>
-            <input type="text" className="input-field" placeholder="KA-01-AB-1234" value={regNo} onChange={(e) => setRegNo(e.target.value)} required />
+            <input type="text" className="input-field" value={regNo} onChange={(e) => setRegNo(e.target.value)} placeholder="e.g. KA-01-AB-1234" required />
           </div>
 
           <div style={{ display: 'flex', gap: '12px' }}>
@@ -77,7 +81,7 @@ function VehicleManagerView({ token }) {
             </div>
 
             <div className="input-group" style={{ flex: 1 }}>
-              <label className="input-label">Fuel / Power Type</label>
+              <label className="input-label">Fuel Type</label>
               <select className="input-field" value={fuelType} onChange={(e) => setFuelType(e.target.value)}>
                 <option value="ELECTRIC">Electric (EV)</option>
                 <option value="HYBRID">Hybrid</option>
@@ -94,16 +98,34 @@ function VehicleManagerView({ token }) {
       </div>
 
       <div>
-        <h4 style={{ fontSize: '0.95rem', fontWeight: '700', marginBottom: '10px' }}>Registered Fleet</h4>
-        {vehicles.map(v => (
-          <div key={v._id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', padding: '12px 16px' }}>
-            <div>
-              <div style={{ fontWeight: '700', fontSize: '0.9rem' }}>{v.model}</div>
-              <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>{v.registrationNumber}</div>
-            </div>
-            <span className="badge badge-emerald">{v.fuelType}</span>
+        <h4 style={{ fontSize: '0.95rem', fontWeight: '800', marginBottom: '12px', color: '#11281A' }}>Registered Fleet</h4>
+        {fetching ? (
+          <div>
+            {[1, 2].map(i => (
+              <div key={i} className="skeleton-card" style={{ height: '65px', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ flex: 1 }}>
+                  <div className="skeleton skeleton-line medium"></div>
+                  <div className="skeleton skeleton-line short"></div>
+                </div>
+                <div className="skeleton" style={{ width: '60px', height: '24px', borderRadius: '12px' }}></div>
+              </div>
+            ))}
           </div>
-        ))}
+        ) : vehicles.length === 0 ? (
+          <div className="card" style={{ textAlign: 'center', padding: '20px', color: '#5D7063' }}>
+            No vehicles registered yet. Add your vehicle above.
+          </div>
+        ) : (
+          vehicles.map(v => (
+            <div key={v._id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', padding: '12px 16px' }}>
+              <div>
+                <div style={{ fontWeight: '700', fontSize: '0.9rem', color: '#11281A' }}>{v.model}</div>
+                <div style={{ fontSize: '0.78rem', color: '#5D7063' }}>{v.registrationNumber}</div>
+              </div>
+              <span className="badge badge-emerald">{v.fuelType}</span>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
