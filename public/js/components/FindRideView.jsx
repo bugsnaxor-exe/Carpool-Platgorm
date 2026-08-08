@@ -1,7 +1,7 @@
 const { useState, useEffect, useRef } = React;
 
 function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) {
-  // Exact Default Locations
+  // Exact Default Locations with verified Lat/Lng
   const DEFAULT_PICKUP = { lat: 12.9279, lng: 77.6772, name: 'Bellandur, Bengaluru' };
   const DEFAULT_DESTINATION = { lat: 12.8452, lng: 77.6602, name: 'Electronic City, Bengaluru' };
 
@@ -29,11 +29,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
   const [bookedTrip, setBookedTrip] = useState(null);
 
   const mapRef = useRef(null);
-  const googleMapRef = useRef(null);
-  const directionsRendererRef = useRef(null);
-
-  // Leaflet Fallback Refs
-  const leafletMapRef = useRef(null);
+  const mapInstance = useRef(null);
   const routePolylineRef = useRef(null);
   const pickupMarkerRef = useRef(null);
   const destMarkerRef = useRef(null);
@@ -41,10 +37,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
   const pickupDebounceRef = useRef(null);
   const destDebounceRef = useRef(null);
 
-  // Check if Google Maps JS API is loaded
-  const isGoogleMapsReady = () => typeof window.google !== 'undefined' && typeof window.google.maps !== 'undefined';
-
-  // Helper: Fetch matching location suggestions using Google Places Autocomplete or Nominatim
+  // Helper: Fetch matching location suggestions (Google Places first, Nominatim fallback)
   const fetchLocationSuggestions = (query, setSuggestions, setShowDropdown) => {
     if (!query || query.trim().length < 2) {
       setSuggestions([]);
@@ -54,8 +47,8 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
 
     const q = query.trim();
 
-    // Use Google Places Autocomplete if available
-    if (isGoogleMapsReady() && window.google.maps.places) {
+    // 1. Try Google Places Autocomplete Service
+    if (typeof window.google !== 'undefined' && window.google.maps && window.google.maps.places) {
       try {
         const service = new window.google.maps.places.AutocompleteService();
         service.getPlacePredictions(
@@ -64,7 +57,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
             componentRestrictions: { country: 'in' }
           },
           (predictions, status) => {
-            if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
+            if (status === 'OK' && predictions && predictions.length > 0) {
               const formatted = predictions.map(p => ({
                 label: p.structured_formatting ? p.structured_formatting.main_text : p.description.split(',')[0],
                 fullAddress: p.description,
@@ -73,7 +66,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
               setSuggestions(formatted);
               setShowDropdown(true);
             } else {
-              fallbackNominatimSearch(q, setSuggestions, setShowDropdown);
+              fetchNominatimFallback(q, setSuggestions, setShowDropdown);
             }
           }
         );
@@ -81,11 +74,12 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
       } catch (e) {}
     }
 
-    fallbackNominatimSearch(q, setSuggestions, setShowDropdown);
+    // 2. Fallback to Nominatim Search
+    fetchNominatimFallback(q, setSuggestions, setShowDropdown);
   };
 
   // Fallback Nominatim Search
-  const fallbackNominatimSearch = async (q, setSuggestions, setShowDropdown) => {
+  const fetchNominatimFallback = async (q, setSuggestions, setShowDropdown) => {
     try {
       const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&extratags=1&limit=8&countrycodes=in&q=${encodeURIComponent(q)}`;
       const res = await fetch(url);
@@ -134,117 +128,132 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     }, 280);
   };
 
-  // Draw Route on Map (Google Maps Directions or Leaflet OSRM Fallback)
+  // Fetch OSRM Turn-by-Turn Road Route
+  const fetchOSRMRoadRoute = async (startLat, startLng, endLat, endLng) => {
+    try {
+      const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.routes && data.routes.length > 0) {
+        return data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+      }
+    } catch (e) {
+      console.warn('OSRM Road Route failed, using direct points');
+    }
+    return [[startLat, startLng], [endLat, endLng]];
+  };
+
+  // Draw Exact Road Route on Map
   const drawRoadRouteOnMap = async (customStart, customEnd) => {
     const startLoc = customStart || pickupLocRef.current;
     const endLoc = customEnd || destLocRef.current;
 
-    if (!startLoc || !endLoc) return;
+    if (!startLoc || !endLoc || !mapInstance.current) return;
     setRoutingLoading(true);
 
-    // Google Maps Route Renderer
-    if (isGoogleMapsReady() && googleMapRef.current) {
-      try {
-        const directionsService = new window.google.maps.DirectionsService();
-        if (!directionsRendererRef.current) {
-          directionsRendererRef.current = new window.google.maps.DirectionsRenderer({
-            map: googleMapRef.current,
-            polylineOptions: { strokeColor: '#10b981', strokeWeight: 5, strokeOpacity: 0.95 }
-          });
-        }
+    const roadWaypoints = await fetchOSRMRoadRoute(startLoc.lat, startLoc.lng, endLoc.lat, endLoc.lng);
 
-        directionsService.route(
-          {
-            origin: { lat: startLoc.lat, lng: startLoc.lng },
-            destination: { lat: endLoc.lat, lng: endLoc.lng },
-            travelMode: window.google.maps.TravelMode.DRIVING
-          },
-          (result, status) => {
-            if (status === 'OK') {
-              directionsRendererRef.current.setDirections(result);
-            } else {
-              drawLeafletFallbackRoute(startLoc, endLoc);
-            }
-            setRoutingLoading(false);
-          }
-        );
-        return;
-      } catch (e) {}
-    }
+    if (!mapInstance.current) return;
 
-    await drawLeafletFallbackRoute(startLoc, endLoc);
-  };
+    // Remove previous markers & route layers
+    if (routePolylineRef.current) mapInstance.current.removeLayer(routePolylineRef.current);
+    if (pickupMarkerRef.current) mapInstance.current.removeLayer(pickupMarkerRef.current);
+    if (destMarkerRef.current) mapInstance.current.removeLayer(destMarkerRef.current);
 
-  // Leaflet Route Renderer Fallback
-  const drawLeafletFallbackRoute = async (startLoc, endLoc) => {
-    if (!leafletMapRef.current) {
-      setRoutingLoading(false);
-      return;
-    }
+    // Exact Pickup Marker
+    pickupMarkerRef.current = L.marker([startLoc.lat, startLoc.lng])
+      .addTo(mapInstance.current)
+      .bindPopup(`📍 Pickup: ${startLoc.name}`);
 
-    try {
-      const url = `https://router.project-osrm.org/route/v1/driving/${startLoc.lng},${startLoc.lat};${endLoc.lng},${endLoc.lat}?overview=full&geometries=geojson`;
-      const res = await fetch(url);
-      const data = await res.json();
-      const roadWaypoints = data.routes && data.routes.length > 0
-        ? data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng])
-        : [[startLoc.lat, startLoc.lng], [endLoc.lat, endLoc.lng]];
+    // Exact Destination Marker
+    destMarkerRef.current = L.marker([endLoc.lat, endLoc.lng])
+      .addTo(mapInstance.current)
+      .bindPopup(`🏁 Destination: ${endLoc.name}`);
 
-      if (routePolylineRef.current) leafletMapRef.current.removeLayer(routePolylineRef.current);
-      if (pickupMarkerRef.current) leafletMapRef.current.removeLayer(pickupMarkerRef.current);
-      if (destMarkerRef.current) leafletMapRef.current.removeLayer(destMarkerRef.current);
+    // Draw Smooth Road Navigation Polyline
+    routePolylineRef.current = L.polyline(roadWaypoints, {
+      color: '#10b981',
+      weight: 5,
+      opacity: 0.95,
+      lineCap: 'round',
+      lineJoin: 'round'
+    }).addTo(mapInstance.current);
 
-      pickupMarkerRef.current = L.marker([startLoc.lat, startLoc.lng]).addTo(leafletMapRef.current).bindPopup(`📍 Pickup: ${startLoc.name}`);
-      destMarkerRef.current = L.marker([endLoc.lat, endLoc.lng]).addTo(leafletMapRef.current).bindPopup(`🏁 Destination: ${endLoc.name}`);
-
-      routePolylineRef.current = L.polyline(roadWaypoints, { color: '#10b981', weight: 5, opacity: 0.95 }).addTo(leafletMapRef.current);
-      leafletMapRef.current.fitBounds(routePolylineRef.current.getBounds(), { padding: [35, 35] });
-    } catch (e) {}
+    // Auto-fit camera bounds to fit both locations & road route
+    mapInstance.current.fitBounds(routePolylineRef.current.getBounds(), { padding: [35, 35] });
     setRoutingLoading(false);
   };
 
-  // Select Pickup Suggestion
+  // Select Pickup Autocomplete Suggestion
   const selectPickupSuggestion = async (item) => {
     setPickup(item.label);
     setShowPickupDropdown(false);
 
-    if (item.placeId && isGoogleMapsReady()) {
-      const dummyDiv = document.createElement('div');
-      const service = new window.google.maps.places.PlacesService(dummyDiv);
-      service.getDetails({ placeId: item.placeId }, async (place, status) => {
-        if (status === window.google.maps.places.PlacesServiceStatus.OK && place.geometry) {
-          const locObj = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng(), name: item.label };
-          pickupLocRef.current = locObj;
-          await drawRoadRouteOnMap(locObj, null);
-        }
-      });
-    } else {
-      const locObj = { lat: item.lat, lng: item.lng, name: item.label };
-      pickupLocRef.current = locObj;
-      await drawRoadRouteOnMap(locObj, null);
+    if (item.placeId && typeof window.google !== 'undefined' && window.google.maps && window.google.maps.places) {
+      try {
+        const dummyDiv = document.createElement('div');
+        const service = new window.google.maps.places.PlacesService(dummyDiv);
+        service.getDetails({ placeId: item.placeId }, async (place, status) => {
+          if (status === 'OK' && place.geometry) {
+            const locObj = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng(), name: item.label };
+            pickupLocRef.current = locObj;
+            await drawRoadRouteOnMap(locObj, null);
+            return;
+          }
+          fallbackGeocodeAndDraw(item.label, 'PICKUP');
+        });
+        return;
+      } catch (e) {}
     }
+
+    const locObj = { lat: item.lat || 12.9279, lng: item.lng || 77.6772, name: item.label };
+    pickupLocRef.current = locObj;
+    await drawRoadRouteOnMap(locObj, null);
   };
 
-  // Select Destination Suggestion
+  // Select Destination Autocomplete Suggestion
   const selectDestSuggestion = async (item) => {
     setDestination(item.label);
     setShowDestDropdown(false);
 
-    if (item.placeId && isGoogleMapsReady()) {
-      const dummyDiv = document.createElement('div');
-      const service = new window.google.maps.places.PlacesService(dummyDiv);
-      service.getDetails({ placeId: item.placeId }, async (place, status) => {
-        if (status === window.google.maps.places.PlacesServiceStatus.OK && place.geometry) {
-          const locObj = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng(), name: item.label };
+    if (item.placeId && typeof window.google !== 'undefined' && window.google.maps && window.google.maps.places) {
+      try {
+        const dummyDiv = document.createElement('div');
+        const service = new window.google.maps.places.PlacesService(dummyDiv);
+        service.getDetails({ placeId: item.placeId }, async (place, status) => {
+          if (status === 'OK' && place.geometry) {
+            const locObj = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng(), name: item.label };
+            destLocRef.current = locObj;
+            await drawRoadRouteOnMap(null, locObj);
+            return;
+          }
+          fallbackGeocodeAndDraw(item.label, 'DEST');
+        });
+        return;
+      } catch (e) {}
+    }
+
+    const locObj = { lat: item.lat || 12.8452, lng: item.lng || 77.6602, name: item.label };
+    destLocRef.current = locObj;
+    await drawRoadRouteOnMap(null, locObj);
+  };
+
+  // Fallback Geocode & Draw
+  const fallbackGeocodeAndDraw = async (address, type) => {
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`);
+      const data = await res.json();
+      if (data && data.length > 0) {
+        const locObj = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), name: address };
+        if (type === 'PICKUP') {
+          pickupLocRef.current = locObj;
+          await drawRoadRouteOnMap(locObj, null);
+        } else {
           destLocRef.current = locObj;
           await drawRoadRouteOnMap(null, locObj);
         }
-      });
-    } else {
-      const locObj = { lat: item.lat, lng: item.lng, name: item.label };
-      destLocRef.current = locObj;
-      await drawRoadRouteOnMap(null, locObj);
-    }
+      }
+    } catch (e) {}
   };
 
   // Set Location from Preset Shortcuts
@@ -260,96 +269,121 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     }
   };
 
-  // Initialize Google Maps or Leaflet Fallback Map
+  // Safe Leaflet Map Initialization & Re-mounting Fix + Map Click Location Selection
   useEffect(() => {
     if (step === 'SEARCH' && mapRef.current) {
-      if (isGoogleMapsReady()) {
-        const darkStyle = [
-          { elementType: 'geometry', stylers: [{ color: '#1d2c4d' }] },
-          { elementType: 'labels.text.fill', stylers: [{ color: '#8ec3b9' }] },
-          { elementType: 'labels.text.stroke', stylers: [{ color: '#1a3646' }] },
-          { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#304a7d' }] },
-          { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] }
-        ];
-
-        googleMapRef.current = new window.google.maps.Map(mapRef.current, {
-          center: { lat: pickupLocRef.current.lat, lng: pickupLocRef.current.lng },
-          zoom: 12,
-          styles: darkStyle,
-          disableDefaultUI: true
-        });
-
-        // Google Maps Click Handler
-        googleMapRef.current.addListener('click', (e) => {
-          const lat = e.latLng.lat();
-          const lng = e.latLng.lng();
-          const geocoder = new window.google.maps.Geocoder();
-          geocoder.geocode({ location: { lat, lng } }, async (results, status) => {
-            const placeName = (status === 'OK' && results[0]) ? results[0].formatted_address.split(',').slice(0, 3).join(',') : `Map Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
-            const clickedLoc = { lat, lng, name: placeName };
-            setDestination(placeName);
-            destLocRef.current = clickedLoc;
-            await drawRoadRouteOnMap(null, clickedLoc);
-          });
-        });
-
-        drawRoadRouteOnMap();
-      } else {
-        // Leaflet Fallback
-        if (leafletMapRef.current) {
-          leafletMapRef.current.remove();
-          leafletMapRef.current = null;
-        }
-
-        leafletMapRef.current = L.map(mapRef.current).setView([pickupLocRef.current.lat, pickupLocRef.current.lng], 12);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(leafletMapRef.current);
-
-        drawRoadRouteOnMap();
+      if (mapInstance.current) {
+        mapInstance.current.remove();
+        mapInstance.current = null;
       }
+
+      mapInstance.current = L.map(mapRef.current).setView([pickupLocRef.current.lat, pickupLocRef.current.lng], 12);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap'
+      }).addTo(mapInstance.current);
+
+      // Interactive Map Click Location Selection
+      mapInstance.current.on('click', async (e) => {
+        const { lat, lng } = e.latlng;
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+          const data = await res.json();
+          const placeName = data.display_name ? data.display_name.split(',').slice(0, 3).join(',') : `Map Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+
+          const clickedLoc = { lat, lng, name: placeName };
+          setDestination(placeName);
+          destLocRef.current = clickedLoc;
+          await drawRoadRouteOnMap(null, clickedLoc);
+        } catch (err) {}
+      });
+
+      drawRoadRouteOnMap();
     }
 
     return () => {
-      if (leafletMapRef.current) {
-        leafletMapRef.current.remove();
-        leafletMapRef.current = null;
+      if (mapInstance.current) {
+        mapInstance.current.remove();
+        mapInstance.current = null;
       }
     };
   }, [step]);
 
-  // GPS Pickup Location Fetching
+  // Actual Real-Time GPS Pickup Location Fetching
   const fetchCurrentLocation = () => {
-    if (!navigator.geolocation) return alert('Geolocation is not supported');
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser');
+      return;
+    }
+
     setFetchingGPS(true);
 
     navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude, longitude } = pos.coords;
-        const gpsLoc = { lat: latitude, lng: longitude, name: `Current GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})` };
-        setPickup(gpsLoc.name);
-        pickupLocRef.current = gpsLoc;
-        await drawRoadRouteOnMap(gpsLoc, null);
-        setFetchingGPS(false);
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+          const data = await res.json();
+          const placeName = data.display_name
+            ? data.display_name.split(',').slice(0, 3).join(',')
+            : `GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
+
+          const gpsLoc = { lat: latitude, lng: longitude, name: placeName };
+          setPickup(placeName);
+          pickupLocRef.current = gpsLoc;
+          await drawRoadRouteOnMap(gpsLoc, null);
+        } catch (err) {
+          const fallbackGps = { lat: latitude, lng: longitude, name: `Current Location (${latitude.toFixed(4)}, ${longitude.toFixed(4)})` };
+          setPickup(fallbackGps.name);
+          pickupLocRef.current = fallbackGps;
+          await drawRoadRouteOnMap(fallbackGps, null);
+        } finally {
+          setFetchingGPS(false);
+        }
       },
-      () => setFetchingGPS(false),
+      (error) => {
+        setFetchingGPS(false);
+        alert(`Could not fetch location: ${error.message}`);
+      },
       { enableHighAccuracy: true, timeout: 10000 }
     );
   };
 
-  // GPS Destination Location Fetching
+  // Actual Real-Time GPS Destination Location Fetching
   const fetchDestinationLocation = () => {
-    if (!navigator.geolocation) return alert('Geolocation is not supported');
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser');
+      return;
+    }
+
     setFetchingDestGPS(true);
 
     navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude, longitude } = pos.coords;
-        const gpsLoc = { lat: latitude, lng: longitude, name: `Destination GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})` };
-        setDestination(gpsLoc.name);
-        destLocRef.current = gpsLoc;
-        await drawRoadRouteOnMap(null, gpsLoc);
-        setFetchingDestGPS(false);
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+          const data = await res.json();
+          const placeName = data.display_name
+            ? data.display_name.split(',').slice(0, 3).join(',')
+            : `GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
+
+          const gpsLoc = { lat: latitude, lng: longitude, name: placeName };
+          setDestination(placeName);
+          destLocRef.current = gpsLoc;
+          await drawRoadRouteOnMap(null, gpsLoc);
+        } catch (err) {
+          const fallbackGps = { lat: latitude, lng: longitude, name: `Destination GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})` };
+          setDestination(fallbackGps.name);
+          destLocRef.current = fallbackGps;
+          await drawRoadRouteOnMap(null, fallbackGps);
+        } finally {
+          setFetchingDestGPS(false);
+        }
       },
-      () => setFetchingDestGPS(false),
+      (error) => {
+        setFetchingDestGPS(false);
+        alert(`Could not fetch destination location: ${error.message}`);
+      },
       { enableHighAccuracy: true, timeout: 10000 }
     );
   };
@@ -360,7 +394,10 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     try {
       const res = await fetch('/api/rides/search', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ pickup, destination, seats })
       });
       const data = await res.json();
@@ -377,7 +414,10 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     try {
       const res = await fetch('/api/trips/book', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ rideId, seatsBooked: seats })
       });
       const data = await res.json();
@@ -401,11 +441,11 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
             <div className="map-view-container" ref={mapRef}></div>
             {routingLoading ? (
               <div style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(15, 23, 42, 0.85)', padding: '6px 12px', borderRadius: '12px', color: '#10b981', fontSize: '0.78rem', fontWeight: '700', zIndex: 500 }}>
-                <i className="fa-solid fa-spinner fa-spin"></i> Google Directions...
+                <i className="fa-solid fa-spinner fa-spin"></i> Calculating Road Navigation...
               </div>
             ) : (
               <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'rgba(15, 23, 42, 0.85)', padding: '5px 10px', borderRadius: '12px', color: '#cbd5e1', fontSize: '0.72rem', fontWeight: '600', zIndex: 500 }}>
-                <i className="fa-solid fa-map-location-dot" style={{ color: '#10b981' }}></i> Powered by Google Places
+                <i className="fa-solid fa-hand-pointer" style={{ color: '#10b981' }}></i> Click map to drop pin
               </div>
             )}
           </div>
@@ -421,7 +461,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                 onChange={handlePickupChange} 
                 onFocus={() => pickupSuggestions.length > 0 && setShowPickupDropdown(true)}
                 onBlur={() => setTimeout(() => setShowPickupDropdown(false), 250)}
-                placeholder="Type any shop, gate, apartment, or street..."
+                placeholder="Type any area, landmark, or street..."
                 required 
               />
 
@@ -487,7 +527,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                 onChange={handleDestinationChange} 
                 onFocus={() => destSuggestions.length > 0 && setShowDestDropdown(true)}
                 onBlur={() => setTimeout(() => setShowDestDropdown(false), 250)}
-                placeholder="Type destination shop, gate, or landmark..."
+                placeholder="Type destination area or landmark..."
                 required 
               />
 
