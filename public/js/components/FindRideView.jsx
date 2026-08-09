@@ -1,7 +1,7 @@
 const { useState, useEffect, useRef } = React;
 
 function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) {
-  // Exact Default Locations
+  // Default Locations
   const DEFAULT_PICKUP = { lat: 22.5726, lng: 88.4337, name: 'Salt Lake Sector V, Kolkata' };
   const DEFAULT_DESTINATION = { lat: 22.6547, lng: 88.4467, name: 'Kolkata Airport (CCU)' };
 
@@ -33,25 +33,24 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
   const [msg, setMsg] = useState('');
 
   const mapRef = useRef(null);
-  const googleMapRef = useRef(null);
-  const gPickupMarkerRef = useRef(null);
-  const gDestMarkerRef = useRef(null);
-  const gPolylineRef = useRef(null);
-
-  // Leaflet Fallback Refs
   const mapInstance = useRef(null);
+  const routePolylineRef = useRef(null);
+  const pickupMarkerRef = useRef(null);
+  const destMarkerRef = useRef(null);
 
   const pickupDebounceRef = useRef(null);
   const destDebounceRef = useRef(null);
 
-  // Hotspot Locations Dictionary for Instant Offline Suggestions
+  // Pre-configured Corporate Hotspot Locations for Instant Suggestions
   const HOTSPOT_LOCATIONS = [
     { label: 'Salt Lake Sector V', fullAddress: 'Salt Lake Sector V, Bidhannagar, Kolkata', lat: 22.5726, lng: 88.4337 },
     { label: 'Kolkata Airport (CCU)', fullAddress: 'Netaji Subhash Chandra Bose International Airport, Dum Dum, Kolkata', lat: 22.6547, lng: 88.4467 },
     { label: 'Barasat Junction', fullAddress: 'Barasat Champadali Bus Terminal, Barasat, Kolkata', lat: 22.7214, lng: 88.4816 },
     { label: 'New Town Eco Park', fullAddress: 'Action Area II, New Town, Kolkata', lat: 22.5973, lng: 88.4680 },
     { label: 'Electronic City HQ', fullAddress: 'Electronic City Phase 1, Bengaluru', lat: 12.8452, lng: 77.6602 },
-    { label: 'Bellandur Campus', fullAddress: 'Outer Ring Road, Bellandur, Bengaluru', lat: 12.9279, lng: 77.6772 }
+    { label: 'Bellandur Campus', fullAddress: 'Outer Ring Road, Bellandur, Bengaluru', lat: 12.9279, lng: 77.6772 },
+    { label: 'Howrah Railway Station', fullAddress: 'Howrah Railway Station, Howrah, Kolkata', lat: 22.5840, lng: 88.3426 },
+    { label: 'Park Street', fullAddress: 'Park Street, Kolkata', lat: 22.5534, lng: 88.3524 }
   ];
 
   const calculateHaversineDistance = (lat1, lon1, lat2, lon2) => {
@@ -65,7 +64,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     return parseFloat((R * c).toFixed(1));
   };
 
-  // Helper: Fetch matching location suggestions
+  // Helper: Fetch matching location suggestions while typing
   const fetchLocationSuggestions = (query, setSuggestions, setShowDropdown) => {
     if (!query || query.trim().length < 1) {
       setSuggestions([]);
@@ -75,7 +74,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
 
     const q = query.trim().toLowerCase();
 
-    // 1. Check Hotspots First for Instant Reliability
+    // 1. Instant Hotspot Matching
     const hotspotMatches = HOTSPOT_LOCATIONS.filter(h => 
       h.label.toLowerCase().includes(q) || h.fullAddress.toLowerCase().includes(q)
     );
@@ -85,38 +84,13 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
       setShowDropdown(true);
     }
 
-    // 2. Try Google Places Autocomplete Service if available
-    if (typeof window.google !== 'undefined' && window.google.maps && window.google.maps.places) {
-      try {
-        const service = new window.google.maps.places.AutocompleteService();
-        service.getPlacePredictions(
-          { input: query.trim(), componentRestrictions: { country: 'in' } },
-          (predictions, status) => {
-            if (status === 'OK' && predictions && predictions.length > 0) {
-              const formatted = predictions.map(p => ({
-                label: p.structured_formatting ? p.structured_formatting.main_text : p.description.split(',')[0],
-                fullAddress: p.description,
-                placeId: p.place_id
-              }));
-              setSuggestions([...hotspotMatches, ...formatted]);
-              setShowDropdown(true);
-            } else {
-              fetchNominatimFallback(query.trim(), hotspotMatches, setSuggestions, setShowDropdown);
-            }
-          }
-        );
-        return;
-      } catch (e) {}
-    }
-
-    // 3. Fallback to Nominatim Search
+    // 2. OpenStreetMap Nominatim Live Geocoding
     fetchNominatimFallback(query.trim(), hotspotMatches, setSuggestions, setShowDropdown);
   };
 
-  // Fallback Nominatim Search
   const fetchNominatimFallback = async (q, existing, setSuggestions, setShowDropdown) => {
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&extratags=1&limit=6&countrycodes=in&q=${encodeURIComponent(q)}`;
+      const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&countrycodes=in&q=${encodeURIComponent(q)}`;
       const res = await fetch(url);
       const data = await res.json();
       if (data && data.length > 0) {
@@ -134,17 +108,11 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
       } else if (existing.length > 0) {
         setSuggestions(existing);
         setShowDropdown(true);
-      } else {
-        setSuggestions([]);
-        setShowDropdown(false);
       }
     } catch (e) {
       if (existing.length > 0) {
         setSuggestions(existing);
         setShowDropdown(true);
-      } else {
-        setSuggestions([]);
-        setShowDropdown(false);
       }
     }
   };
@@ -155,7 +123,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     if (pickupDebounceRef.current) clearTimeout(pickupDebounceRef.current);
     pickupDebounceRef.current = setTimeout(() => {
       fetchLocationSuggestions(val, setPickupSuggestions, setShowPickupDropdown);
-    }, 200);
+    }, 180);
   };
 
   const handleDestinationChange = (e) => {
@@ -164,7 +132,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     if (destDebounceRef.current) clearTimeout(destDebounceRef.current);
     destDebounceRef.current = setTimeout(() => {
       fetchLocationSuggestions(val, setDestSuggestions, setShowDestDropdown);
-    }, 200);
+    }, 180);
   };
 
   const setPresetLocation = (type, locObj) => {
@@ -195,7 +163,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     drawRoadRouteOnMap(null, locObj);
   };
 
-  // Fetch Road Distance
+  // Fetch Turn-by-Turn Road Waypoints from OSRM
   const fetchOSRMRoadRoute = async (startLat, startLng, endLat, endLng) => {
     try {
       const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`;
@@ -214,13 +182,57 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     return [[startLat, startLng], [endLat, endLng]];
   };
 
+  // Draw Road Line & Custom Pin Markers on Map Canvas
   const drawRoadRouteOnMap = async (customStart, customEnd) => {
     const startLoc = customStart || pickupLocRef.current;
     const endLoc = customEnd || destLocRef.current;
     if (!startLoc || !endLoc) return;
     setRoutingLoading(true);
 
-    await fetchOSRMRoadRoute(startLoc.lat, startLoc.lng, endLoc.lat, endLoc.lng);
+    const waypoints = await fetchOSRMRoadRoute(startLoc.lat, startLoc.lng, endLoc.lat, endLoc.lng);
+
+    if (mapInstance.current && typeof L !== 'undefined') {
+      try {
+        if (pickupMarkerRef.current) mapInstance.current.removeLayer(pickupMarkerRef.current);
+        if (destMarkerRef.current) mapInstance.current.removeLayer(destMarkerRef.current);
+        if (routePolylineRef.current) mapInstance.current.removeLayer(routePolylineRef.current);
+
+        const greenIcon = L.divIcon({
+          className: 'custom-map-pin',
+          html: `<div style="background: #0D6E42; color: #FFF; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1rem; border: 2.5px solid #FFF; box-shadow: 0 4px 14px rgba(0,0,0,0.3);"><i class="fa-solid fa-location-dot"></i></div>`,
+          iconSize: [34, 34],
+          iconAnchor: [17, 17]
+        });
+
+        const redIcon = L.divIcon({
+          className: 'custom-map-pin',
+          html: `<div style="background: #c0392b; color: #FFF; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1rem; border: 2.5px solid #FFF; box-shadow: 0 4px 14px rgba(0,0,0,0.3);"><i class="fa-solid fa-flag-checkered"></i></div>`,
+          iconSize: [34, 34],
+          iconAnchor: [17, 17]
+        });
+
+        pickupMarkerRef.current = L.marker([startLoc.lat, startLoc.lng], { icon: greenIcon })
+          .bindPopup(`<b>Pickup:</b> ${startLoc.name}`)
+          .addTo(mapInstance.current);
+
+        destMarkerRef.current = L.marker([endLoc.lat, endLoc.lng], { icon: redIcon })
+          .bindPopup(`<b>Destination:</b> ${endLoc.name}`)
+          .addTo(mapInstance.current);
+
+        routePolylineRef.current = L.polyline(waypoints, {
+          color: '#0D6E42',
+          weight: 6,
+          opacity: 0.9,
+          lineCap: 'round',
+          lineJoin: 'round'
+        }).addTo(mapInstance.current);
+
+        const bounds = L.latLngBounds(waypoints);
+        mapInstance.current.fitBounds(bounds, { padding: [35, 35] });
+      } catch (err) {
+        console.error('[Map Draw Error]', err);
+      }
+    }
     setRoutingLoading(false);
   };
 
@@ -304,7 +316,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ rideId, seatsBooked: seats, paymentMethod: 'UPI' })
+        body: JSON.stringify({ rideId, seatsBooked: Number(seats), paymentMethod: 'UPI' })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to book trip');
@@ -336,16 +348,16 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
 
       {step === 'SEARCH' ? (
         <form onSubmit={handleSearchRides}>
-          {/* Interactive Route Map Preview */}
+          {/* Interactive Turn-by-Turn Road Route Map */}
           <div style={{ position: 'relative' }}>
-            <div className="map-view-container" ref={mapRef}></div>
+            <div className="map-view-container" ref={mapRef} style={{ borderRadius: '18px', height: '210px', boxShadow: '0 8px 25px rgba(5,59,34,0.12)' }}></div>
             {routingLoading ? (
               <div style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(5, 59, 34, 0.9)', padding: '6px 14px', borderRadius: '20px', color: '#FFFFFF', fontSize: '0.78rem', fontWeight: '700', zIndex: 500 }}>
-                <i className="fa-solid fa-spinner fa-spin"></i> Calculating Route...
+                <i className="fa-solid fa-spinner fa-spin"></i> Drawing Road Route...
               </div>
             ) : (
               <div style={{ position: 'absolute', top: '10px', left: '10px', background: '#FFFFFF', padding: '6px 12px', borderRadius: '20px', color: '#0D6E42', fontSize: '0.74rem', fontWeight: '700', zIndex: 500, border: '1px solid #E8E1D3' }}>
-                <i className="fa-solid fa-map-location-dot" style={{ color: '#0D6E42' }}></i> Map Route Active
+                <i className="fa-solid fa-route" style={{ color: '#0D6E42' }}></i> Turn-by-Turn Route
               </div>
             )}
           </div>
@@ -382,7 +394,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                 onChange={handlePickupChange} 
                 onFocus={() => pickupSuggestions.length > 0 && setShowPickupDropdown(true)}
                 onBlur={() => setTimeout(() => setShowPickupDropdown(false), 250)}
-                placeholder="Type area name (e.g. Salt Lake, Barasat)..."
+                placeholder="Start typing pickup location (e.g. Salt Lake, Barasat)..."
                 required 
               />
 
@@ -405,7 +417,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
               )}
             </div>
 
-            {/* Polished Minimal Emerald Quick Pills */}
+            {/* Quick Preset Pills */}
             <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
               <button 
                 type="button" 
@@ -432,7 +444,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
               <button 
                 type="button" 
                 onClick={() => setPresetLocation('PICKUP', { lat: 22.5726, lng: 88.4337, name: 'Salt Lake Sector V, Kolkata' })} 
-                style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #E8E1D3', background: '#F4EFE6', color: '#0D6E42', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s ease' }}
+                style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #E8E1D3', background: '#F4EFE6', color: '#0D6E42', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer' }}
               >
                 <i className="fa-solid fa-house"></i> Home
               </button>
@@ -440,13 +452,13 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
               <button 
                 type="button" 
                 onClick={() => setPresetLocation('PICKUP', { lat: 22.7214, lng: 88.4816, name: 'Barasat Junction, Kolkata' })} 
-                style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #E8E1D3', background: '#F4EFE6', color: '#0D6E42', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s ease' }}
+                style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #E8E1D3', background: '#F4EFE6', color: '#0D6E42', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer' }}
               >
                 <i className="fa-solid fa-location-dot"></i> Barasat
               </button>
             </div>
 
-            {/* Destination Location Field & Autocomplete Dropdown */}
+            {/* Destination Field with Automatic Suggestions */}
             <div className="input-group">
               <label className="input-label"><i className="fa-solid fa-flag-checkered" style={{ color: '#c0392b' }}></i> Destination Location</label>
               <input 
@@ -456,7 +468,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                 onChange={handleDestinationChange} 
                 onFocus={() => destSuggestions.length > 0 && setShowDestDropdown(true)}
                 onBlur={() => setTimeout(() => setShowDestDropdown(false), 250)}
-                placeholder="Type destination area or landmark..."
+                placeholder="Start typing destination (e.g. Airport, Eco Park)..."
                 required 
               />
 
@@ -479,7 +491,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
               )}
             </div>
 
-            {/* Destination Shortcuts & GPS Fetcher */}
+            {/* Destination Shortcuts */}
             <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
               <button 
                 type="button" 
@@ -506,7 +518,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
               <button 
                 type="button" 
                 onClick={() => setPresetLocation('DEST', { lat: 22.6547, lng: 88.4467, name: 'Kolkata Airport (CCU)' })} 
-                style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #E8E1D3', background: '#F4EFE6', color: '#0D6E42', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s ease' }}
+                style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #E8E1D3', background: '#F4EFE6', color: '#0D6E42', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer' }}
               >
                 <i className="fa-solid fa-plane-departure"></i> Airport
               </button>
@@ -514,7 +526,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
               <button 
                 type="button" 
                 onClick={() => setPresetLocation('DEST', { lat: 12.8452, lng: 77.6602, name: 'Electronic City HQ' })} 
-                style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #E8E1D3', background: '#F4EFE6', color: '#0D6E42', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s ease' }}
+                style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #E8E1D3', background: '#F4EFE6', color: '#0D6E42', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer' }}
               >
                 <i className="fa-solid fa-briefcase"></i> E-City HQ
               </button>
