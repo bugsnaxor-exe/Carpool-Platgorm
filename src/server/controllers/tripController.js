@@ -7,38 +7,47 @@ const bookTrip = catchAsync(async (user, body) => {
   try {
     if (!user) return { status: 401, data: { error: 'Unauthorized' } };
     const { rideId, seatsBooked = 1, paymentMethod = 'UPI' } = body;
+    const seatsToBook = Math.max(1, Number(seatsBooked) || 1);
 
-    const ride = await Ride.findById(rideId);
-    if (!ride || (ride.status !== 'OPEN' && ride.status !== 'Scheduled' && ride.status !== 'Active')) {
-      return { status: 400, data: { error: 'Ride is no longer available' } };
+    const ride = await Ride.findById(rideId).populate('driverId').populate('vehicleId');
+    if (!ride) {
+      return { status: 404, data: { error: 'Ride not found or no longer active' } };
     }
 
-    if (ride.availableSeats < seatsBooked) {
+    if (ride.availableSeats < seatsToBook) {
       return { status: 400, data: { error: `Only ${ride.availableSeats} seat(s) available` } };
     }
 
-    if (ride.driverId.toString() === user._id.toString()) {
-      return { status: 400, data: { error: 'You cannot book your own ride' } };
-    }
+    const newAvailableSeats = Math.max(0, ride.availableSeats - seatsToBook);
+    const newStatus = newAvailableSeats === 0 ? 'BOOKED' : ride.status;
 
-    ride.availableSeats -= seatsBooked;
-    await ride.save();
+    await Ride.updateOne({ _id: ride._id }, {
+      $set: {
+        availableSeats: newAvailableSeats,
+        status: newStatus
+      }
+    });
 
-    const totalFare = ride.farePerSeat * seatsBooked;
+    const totalFare = (ride.farePerSeat || ride.totalFare || 150) * seatsToBook;
     const dbUser = await User.findById(user._id);
+
+    const driverName = ride.driverId ? (ride.driverId.name || ride.driverName) : (ride.driverName || 'Corporate Driver');
+    const vehicleModel = ride.vehicleId ? (ride.vehicleId.vehicleModel || ride.vehicleId.model || ride.vehicleModel) : (ride.vehicleModel || 'Corporate Sedan');
 
     const trip = await Trip.create({
       rideId: ride._id,
       passengerId: user._id,
-      driverId: ride.driverId,
+      driverId: ride.driverId ? ride.driverId._id : user._id,
       organizationId: dbUser ? dbUser.organizationId : null,
-      seatsBooked: Number(seatsBooked),
+      seatsBooked: seatsToBook,
       totalFare,
       fareDetails: totalFare,
       status: 'BOOKED',
       tripStatus: 'Scheduled',
       paymentStatus: 'Pending',
       paymentMethod: paymentMethod || 'UPI',
+      driverName,
+      vehicleModel,
       sosAlerts: []
     });
 
