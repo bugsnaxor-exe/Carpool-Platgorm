@@ -15,7 +15,7 @@ const vehicleSchema = new mongoose.Schema(
     model: { type: String, trim: true },
     registrationNumber: { type: String, required: true, uppercase: true, trim: true },
     seatingCapacity: { type: Number, required: true, min: 1 },
-    fuelType: { type: String, enum: ['EV', 'HYBRID', 'PETROL', 'DIESEL', 'CNG'], default: 'PETROL' },
+    fuelType: { type: String, enum: ['EV', 'ELECTRIC', 'HYBRID', 'PETROL', 'DIESEL', 'CNG'], default: 'EV' },
     status: { type: String, default: 'APPROVED' }
   },
   { 
@@ -35,6 +35,10 @@ vehicleSchema.pre('save', function (next) {
     this.model = this.vehicleModel;
   } else if (this.model && !this.vehicleModel) {
     this.vehicleModel = this.model;
+  }
+
+  if (this.fuelType === 'ELECTRIC') {
+    this.fuelType = 'EV';
   }
   next();
 });
