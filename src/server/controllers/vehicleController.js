@@ -1,36 +1,53 @@
 const Vehicle = require('../../../models/Vehicle');
 const User = require('../../../models/User');
+const { catchAsync } = require('../utils/errorHandler');
 
-const getVehicles = async (user) => {
-  if (!user) return { status: 401, data: { error: 'Unauthorized' } };
+const getVehicles = catchAsync(async (user) => {
+  try {
+    if (!user) return { status: 401, data: { error: 'Unauthorized' } };
 
-  const vehicles = await Vehicle.find({ userId: user._id });
-  return { status: 200, data: vehicles };
-};
+    const vehicles = await Vehicle.find({
+      $or: [{ userId: user._id }, { ownerId: user._id }]
+    });
 
-const createVehicle = async (user, body) => {
-  if (!user) return { status: 401, data: { error: 'Unauthorized' } };
-  const { model, registrationNumber, seatingCapacity, fuelType, color } = body;
-
-  if (!model || !registrationNumber || !seatingCapacity) {
-    return { status: 400, data: { error: 'Model, Registration, and Seating capacity are required' } };
+    return { status: 200, data: vehicles };
+  } catch (err) {
+    console.error(`[Get Vehicles Error] ${err.message}`, err);
+    return { status: 500, data: { error: 'Failed to retrieve vehicles', details: err.message } };
   }
+});
 
-  const dbUser = await User.findById(user._id);
-  if (!dbUser) return { status: 404, data: { error: 'User not found' } };
+const createVehicle = catchAsync(async (user, body) => {
+  try {
+    if (!user) return { status: 401, data: { error: 'Unauthorized' } };
 
-  const newVehicle = await Vehicle.create({
-    userId: user._id,
-    organizationId: dbUser.organizationId,
-    model: model.trim(),
-    registrationNumber: registrationNumber.trim().toUpperCase(),
-    seatingCapacity: Number(seatingCapacity),
-    fuelType: fuelType || 'EV',
-    color: color || 'Black',
-    status: 'APPROVED'
-  });
+    const { model, vehicleModel, registrationNumber, seatingCapacity, fuelType, color } = body;
+    const targetModel = vehicleModel || model;
 
-  return { status: 201, data: newVehicle };
-};
+    if (!targetModel || !registrationNumber || !seatingCapacity) {
+      return { status: 400, data: { error: 'Vehicle model, registration number, and seating capacity are required' } };
+    }
+
+    const dbUser = await User.findById(user._id);
+
+    const vehicle = await Vehicle.create({
+      userId: user._id,
+      ownerId: user._id,
+      organizationId: dbUser ? dbUser.organizationId : null,
+      model: targetModel.trim(),
+      vehicleModel: targetModel.trim(),
+      registrationNumber: registrationNumber.trim().toUpperCase(),
+      seatingCapacity: Number(seatingCapacity),
+      fuelType: fuelType || 'EV',
+      color: color || 'Black',
+      status: 'APPROVED'
+    });
+
+    return { status: 201, data: vehicle };
+  } catch (err) {
+    console.error(`[Create Vehicle Error] ${err.message}`, err);
+    return { status: 500, data: { error: 'Failed to register vehicle', details: err.message } };
+  }
+});
 
 module.exports = { getVehicles, createVehicle };

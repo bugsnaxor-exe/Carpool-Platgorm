@@ -20,6 +20,7 @@ const userSchema = new mongoose.Schema(
       enum: ['Employee', 'Admin', 'EMPLOYEE', 'COMPANY_ADMIN'],
       default: 'Employee'
     },
+    organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: false },
     otp: { type: String },
     otpExpires: { type: Date },
     wallet: { type: Number, default: 500 },
@@ -32,11 +33,11 @@ const userSchema = new mongoose.Schema(
   },
   { 
     timestamps: true,
-    strict: false 
+    strict: false,
+    strictPopulate: false
   }
 );
 
-// Pre-save hook to hash password if modified & sync phone/mobileNumber and wallet/walletBalance
 userSchema.pre('save', async function () {
   if (this.mobileNumber && !this.phone) {
     this.phone = this.mobileNumber;

@@ -1,94 +1,158 @@
+const mongoose = require('mongoose');
 const Wallet = require('../../../models/Wallet');
-const Transaction = require('../../../models/Transaction');
+const User = require('../../../models/User');
 const Trip = require('../../../models/Trip');
+const Transaction = require('../../../models/Transaction');
+const { catchAsync } = require('../utils/errorHandler');
 
-const getWallet = async (user) => {
-  if (!user) return { status: 401, data: { error: 'Unauthorized' } };
+const getWallet = catchAsync(async (user) => {
+  try {
+    if (!user) return { status: 401, data: { error: 'Unauthorized' } };
 
-  let wallet = await Wallet.findOne({ userId: user._id });
-  if (!wallet) {
-    wallet = await Wallet.create({ userId: user._id, balance: 500 });
-  }
+    const dbUser = await User.findById(user._id);
+    let wallet = await Wallet.findOne({ userId: user._id });
 
-  const history = await Transaction.find({ userId: user._id }).sort({ createdAt: -1 }).limit(20);
-
-  return {
-    status: 200,
-    data: {
-      balance: wallet.balance,
-      history
+    if (!wallet) {
+      wallet = await Wallet.create({ userId: user._id, balance: 1250 });
     }
-  };
-};
 
-const rechargeWallet = async (user, body) => {
-  if (!user) return { status: 401, data: { error: 'Unauthorized' } };
-  const { amount } = body;
+    const currentBalance = dbUser ? (dbUser.wallet || dbUser.walletBalance || wallet.balance) : wallet.balance;
+    const transactions = await Transaction.find({ userId: user._id }).sort({ createdAt: -1 }).limit(20);
 
-  if (!amount || amount <= 0) {
-    return { status: 400, data: { error: 'Invalid recharge amount' } };
+    return {
+      status: 200,
+      data: {
+        balance: currentBalance,
+        walletBalance: currentBalance,
+        transactions
+      }
+    };
+  } catch (err) {
+    console.error(`[Get Wallet Error] ${err.message}`, err);
+    return { status: 500, data: { error: 'Failed to fetch wallet details', details: err.message } };
   }
+});
 
-  let wallet = await Wallet.findOne({ userId: user._id });
-  if (!wallet) {
-    wallet = await Wallet.create({ userId: user._id, balance: 0 });
-  }
+const rechargeWallet = catchAsync(async (user, body) => {
+  try {
+    if (!user) return { status: 401, data: { error: 'Unauthorized' } };
 
-  wallet.balance += Number(amount);
-  await wallet.save();
+    const { amount, paymentMethod = 'UPI' } = body;
+    const numAmount = Number(amount);
 
-  const transaction = await Transaction.create({
-    userId: user._id,
-    amount: Number(amount),
-    type: 'RECHARGE',
-    paymentMethod: 'RAZORPAY_UPI_SANDBOX',
-    referenceId: `PAY-${Date.now()}`,
-    status: 'SUCCESS'
-  });
-
-  return {
-    status: 200,
-    data: {
-      newBalance: wallet.balance,
-      transaction
+    if (!numAmount || numAmount <= 0) {
+      return { status: 400, data: { error: 'A valid recharge amount is required' } };
     }
-  };
-};
 
-const payTrip = async (user, tripId, body) => {
-  if (!user) return { status: 401, data: { error: 'Unauthorized' } };
+    const dbUser = await User.findById(user._id);
+    let wallet = await Wallet.findOne({ userId: user._id });
 
-  const trip = await Trip.findById(tripId);
-  if (!trip) return { status: 404, data: { error: 'Trip not found' } };
-
-  let wallet = await Wallet.findOne({ userId: user._id });
-  if (!wallet || wallet.balance < trip.totalFare) {
-    return { status: 400, data: { error: 'Insufficient wallet balance' } };
-  }
-
-  wallet.balance -= trip.totalFare;
-  await wallet.save();
-
-  trip.paymentStatus = 'PAID';
-  await trip.save();
-
-  const transaction = await Transaction.create({
-    userId: user._id,
-    amount: trip.totalFare,
-    type: 'TRIP_PAYMENT',
-    paymentMethod: 'CORPORATE_WALLET',
-    referenceId: `TRIP-PAY-${trip._id}`,
-    status: 'SUCCESS'
-  });
-
-  return {
-    status: 200,
-    data: {
-      message: 'Payment completed successfully',
-      newBalance: wallet.balance,
-      transaction
+    if (!wallet) {
+      wallet = await Wallet.create({ userId: user._id, balance: 500 });
     }
-  };
-};
+
+    wallet.balance += numAmount;
+    await wallet.save();
+
+    if (dbUser) {
+      dbUser.wallet = (dbUser.wallet || 0) + numAmount;
+      dbUser.walletBalance = dbUser.wallet;
+      await dbUser.save();
+    }
+
+    const transaction = await Transaction.create({
+      userId: user._id,
+      transactionType: 'Credit',
+      amount: numAmount,
+      description: `Wallet Recharge via ${paymentMethod}`,
+      paymentMethod
+    });
+
+    return {
+      status: 200,
+      data: {
+        message: 'Wallet recharged successfully',
+        balance: dbUser ? dbUser.wallet : wallet.balance,
+        transaction
+      }
+    };
+  } catch (err) {
+    console.error(`[Recharge Wallet Error] ${err.message}`, err);
+    return { status: 500, data: { error: 'Wallet recharge failed', details: err.message } };
+  }
+});
+
+const payTrip = catchAsync(async (user, tripId, body) => {
+  try {
+    if (!user) return { status: 401, data: { error: 'Unauthorized' } };
+
+    const trip = await Trip.findById(tripId);
+    if (!trip) return { status: 404, data: { error: 'Trip not found' } };
+
+    if (trip.passengerId.toString() !== user._id.toString()) {
+      return { status: 403, data: { error: 'You are not authorized to pay for this trip' } };
+    }
+
+    if (trip.paymentStatus === 'Completed' || trip.paymentStatus === 'PAID') {
+      return { status: 400, data: { error: 'Trip is already paid for' } };
+    }
+
+    const fare = Number(trip.fareDetails || trip.totalFare);
+    const passenger = await User.findById(user._id);
+    const driver = await User.findById(trip.driverId);
+
+    const passengerWallet = (passenger && passenger.wallet !== undefined) ? passenger.wallet : 0;
+    if (passengerWallet < fare) {
+      return { status: 400, data: { error: 'Insufficient wallet balance. Please recharge your wallet.' } };
+    }
+
+    if (passenger) {
+      passenger.wallet -= fare;
+      passenger.walletBalance = passenger.wallet;
+      await passenger.save();
+    }
+
+    if (driver) {
+      driver.wallet = (driver.wallet || 0) + fare;
+      driver.walletBalance = driver.wallet;
+      await driver.save();
+    }
+
+    await Transaction.create([
+      {
+        userId: user._id,
+        transactionType: 'Debit',
+        amount: fare,
+        description: 'Payment for Trip',
+        tripId: trip._id,
+        paymentMethod: 'Internal Wallet Transfer'
+      },
+      {
+        userId: trip.driverId,
+        transactionType: 'Credit',
+        amount: fare,
+        description: 'Earnings from Trip',
+        tripId: trip._id,
+        paymentMethod: 'Internal Wallet Transfer'
+      }
+    ]);
+
+    trip.paymentStatus = 'Completed';
+    trip.paymentMethod = 'Wallet';
+    await trip.save();
+
+    return {
+      status: 200,
+      data: {
+        message: 'Payment completed successfully',
+        balance: passenger ? passenger.wallet : 0,
+        trip
+      }
+    };
+  } catch (err) {
+    console.error(`[Pay Trip Error] ${err.message}`, err);
+    return { status: 500, data: { error: 'Trip payment transaction failed', details: err.message } };
+  }
+});
 
 module.exports = { getWallet, rechargeWallet, payTrip };
