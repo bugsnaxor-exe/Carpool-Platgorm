@@ -1,9 +1,9 @@
 const { useState, useEffect, useRef } = React;
 
 function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) {
-  // Exact Default Locations with verified Lat/Lng
-  const DEFAULT_PICKUP = { lat: 12.9279, lng: 77.6772, name: 'Bellandur, Bengaluru' };
-  const DEFAULT_DESTINATION = { lat: 12.8452, lng: 77.6602, name: 'Electronic City, Bengaluru' };
+  // Exact Default Locations
+  const DEFAULT_PICKUP = { lat: 22.5726, lng: 88.4337, name: 'Salt Lake Sector V, Kolkata' };
+  const DEFAULT_DESTINATION = { lat: 22.6547, lng: 88.4467, name: 'Kolkata Airport (CCU)' };
 
   const [pickup, setPickup] = useState(DEFAULT_PICKUP.name);
   const [destination, setDestination] = useState(DEFAULT_DESTINATION.name);
@@ -30,6 +30,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
   const [rides, setRides] = useState([]);
   const [loading, setLoading] = useState(false);
   const [bookedTrip, setBookedTrip] = useState(null);
+  const [msg, setMsg] = useState('');
 
   const mapRef = useRef(null);
   const googleMapRef = useRef(null);
@@ -39,16 +40,22 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
 
   // Leaflet Fallback Refs
   const mapInstance = useRef(null);
-  const routePolylineRef = useRef(null);
-  const pickupMarkerRef = useRef(null);
-  const destMarkerRef = useRef(null);
 
   const pickupDebounceRef = useRef(null);
   const destDebounceRef = useRef(null);
 
-  // Haversine Distance Helper Fallback (km)
+  // Hotspot Locations Dictionary for Instant Offline Suggestions
+  const HOTSPOT_LOCATIONS = [
+    { label: 'Salt Lake Sector V', fullAddress: 'Salt Lake Sector V, Bidhannagar, Kolkata', lat: 22.5726, lng: 88.4337 },
+    { label: 'Kolkata Airport (CCU)', fullAddress: 'Netaji Subhash Chandra Bose International Airport, Dum Dum, Kolkata', lat: 22.6547, lng: 88.4467 },
+    { label: 'Barasat Junction', fullAddress: 'Barasat Champadali Bus Terminal, Barasat, Kolkata', lat: 22.7214, lng: 88.4816 },
+    { label: 'New Town Eco Park', fullAddress: 'Action Area II, New Town, Kolkata', lat: 22.5973, lng: 88.4680 },
+    { label: 'Electronic City HQ', fullAddress: 'Electronic City Phase 1, Bengaluru', lat: 12.8452, lng: 77.6602 },
+    { label: 'Bellandur Campus', fullAddress: 'Outer Ring Road, Bellandur, Bengaluru', lat: 12.9279, lng: 77.6772 }
+  ];
+
   const calculateHaversineDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371; // km
+    const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
     const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
@@ -58,25 +65,32 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
     return parseFloat((R * c).toFixed(1));
   };
 
-  // Helper: Fetch matching location suggestions (Google Places first, Nominatim fallback)
+  // Helper: Fetch matching location suggestions
   const fetchLocationSuggestions = (query, setSuggestions, setShowDropdown) => {
-    if (!query || query.trim().length < 2) {
+    if (!query || query.trim().length < 1) {
       setSuggestions([]);
       setShowDropdown(false);
       return;
     }
 
-    const q = query.trim();
+    const q = query.trim().toLowerCase();
 
-    // 1. Try Google Places Autocomplete Service if ready
+    // 1. Check Hotspots First for Instant Reliability
+    const hotspotMatches = HOTSPOT_LOCATIONS.filter(h => 
+      h.label.toLowerCase().includes(q) || h.fullAddress.toLowerCase().includes(q)
+    );
+
+    if (hotspotMatches.length > 0) {
+      setSuggestions(hotspotMatches);
+      setShowDropdown(true);
+    }
+
+    // 2. Try Google Places Autocomplete Service if available
     if (typeof window.google !== 'undefined' && window.google.maps && window.google.maps.places) {
       try {
         const service = new window.google.maps.places.AutocompleteService();
         service.getPlacePredictions(
-          {
-            input: q,
-            componentRestrictions: { country: 'in' }
-          },
+          { input: query.trim(), componentRestrictions: { country: 'in' } },
           (predictions, status) => {
             if (status === 'OK' && predictions && predictions.length > 0) {
               const formatted = predictions.map(p => ({
@@ -84,10 +98,10 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                 fullAddress: p.description,
                 placeId: p.place_id
               }));
-              setSuggestions(formatted);
+              setSuggestions([...hotspotMatches, ...formatted]);
               setShowDropdown(true);
             } else {
-              fetchNominatimFallback(q, setSuggestions, setShowDropdown);
+              fetchNominatimFallback(query.trim(), hotspotMatches, setSuggestions, setShowDropdown);
             }
           }
         );
@@ -95,14 +109,14 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
       } catch (e) {}
     }
 
-    // 2. Fallback to Nominatim Search
-    fetchNominatimFallback(q, setSuggestions, setShowDropdown);
+    // 3. Fallback to Nominatim Search
+    fetchNominatimFallback(query.trim(), hotspotMatches, setSuggestions, setShowDropdown);
   };
 
   // Fallback Nominatim Search
-  const fetchNominatimFallback = async (q, setSuggestions, setShowDropdown) => {
+  const fetchNominatimFallback = async (q, existing, setSuggestions, setShowDropdown) => {
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&extratags=1&limit=8&countrycodes=in&q=${encodeURIComponent(q)}`;
+      const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&extratags=1&limit=6&countrycodes=in&q=${encodeURIComponent(q)}`;
       const res = await fetch(url);
       const data = await res.json();
       if (data && data.length > 0) {
@@ -115,41 +129,73 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
             lng: parseFloat(item.lon)
           };
         });
-        setSuggestions(formatted);
+        setSuggestions([...existing, ...formatted]);
+        setShowDropdown(true);
+      } else if (existing.length > 0) {
+        setSuggestions(existing);
         setShowDropdown(true);
       } else {
         setSuggestions([]);
         setShowDropdown(false);
       }
     } catch (e) {
-      setSuggestions([]);
-      setShowDropdown(false);
+      if (existing.length > 0) {
+        setSuggestions(existing);
+        setShowDropdown(true);
+      } else {
+        setSuggestions([]);
+        setShowDropdown(false);
+      }
     }
   };
 
-  // Handle Pickup Typing
   const handlePickupChange = (e) => {
     const val = e.target.value;
     setPickup(val);
-
     if (pickupDebounceRef.current) clearTimeout(pickupDebounceRef.current);
     pickupDebounceRef.current = setTimeout(() => {
       fetchLocationSuggestions(val, setPickupSuggestions, setShowPickupDropdown);
-    }, 280);
+    }, 200);
   };
 
-  // Handle Destination Typing
   const handleDestinationChange = (e) => {
     const val = e.target.value;
     setDestination(val);
-
     if (destDebounceRef.current) clearTimeout(destDebounceRef.current);
     destDebounceRef.current = setTimeout(() => {
       fetchLocationSuggestions(val, setDestSuggestions, setShowDestDropdown);
-    }, 280);
+    }, 200);
   };
 
-  // Fetch OSRM Turn-by-Turn Road Route & Calculate Distance
+  const setPresetLocation = (type, locObj) => {
+    if (type === 'PICKUP') {
+      setPickup(locObj.name);
+      pickupLocRef.current = locObj;
+      drawRoadRouteOnMap(locObj, null);
+    } else {
+      setDestination(locObj.name);
+      destLocRef.current = locObj;
+      drawRoadRouteOnMap(null, locObj);
+    }
+  };
+
+  const selectPickupSuggestion = (item) => {
+    setPickup(item.label);
+    setShowPickupDropdown(false);
+    const locObj = { lat: item.lat || 22.5726, lng: item.lng || 88.4337, name: item.label };
+    pickupLocRef.current = locObj;
+    drawRoadRouteOnMap(locObj, null);
+  };
+
+  const selectDestSuggestion = (item) => {
+    setDestination(item.label);
+    setShowDestDropdown(false);
+    const locObj = { lat: item.lat || 22.6547, lng: item.lng || 88.4467, name: item.label };
+    destLocRef.current = locObj;
+    drawRoadRouteOnMap(null, locObj);
+  };
+
+  // Fetch Road Distance
   const fetchOSRMRoadRoute = async (startLat, startLng, endLat, endLng) => {
     try {
       const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`;
@@ -161,334 +207,75 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
         setRouteInfo({ distanceKm: distKm });
         return route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
       }
-    } catch (e) {
-      console.warn('OSRM Road Route failed, using fallback calculations');
-    }
+    } catch (e) {}
 
     const distKm = calculateHaversineDistance(startLat, startLng, endLat, endLng);
     setRouteInfo({ distanceKm: distKm });
     return [[startLat, startLng], [endLat, endLng]];
   };
 
-  // Draw Exact Road Route on Google Maps Canvas (or Leaflet fallback)
   const drawRoadRouteOnMap = async (customStart, customEnd) => {
     const startLoc = customStart || pickupLocRef.current;
     const endLoc = customEnd || destLocRef.current;
-
     if (!startLoc || !endLoc) return;
     setRoutingLoading(true);
 
-    const roadWaypoints = await fetchOSRMRoadRoute(startLoc.lat, startLoc.lng, endLoc.lat, endLoc.lng);
-
-    // 1. Google Maps Canvas Rendering
-    if (typeof window.google !== 'undefined' && window.google.maps && googleMapRef.current) {
-      try {
-        // Clear previous Google markers & polyline
-        if (gPickupMarkerRef.current) gPickupMarkerRef.current.setMap(null);
-        if (gDestMarkerRef.current) gDestMarkerRef.current.setMap(null);
-        if (gPolylineRef.current) gPolylineRef.current.setMap(null);
-
-        const gPath = roadWaypoints.map(([lat, lng]) => ({ lat, lng }));
-
-        gPickupMarkerRef.current = new window.google.maps.Marker({
-          position: { lat: startLoc.lat, lng: startLoc.lng },
-          map: googleMapRef.current,
-          title: `📍 Pickup: ${startLoc.name}`
-        });
-
-        gDestMarkerRef.current = new window.google.maps.Marker({
-          position: { lat: endLoc.lat, lng: endLoc.lng },
-          map: googleMapRef.current,
-          title: `🏁 Destination: ${endLoc.name}`
-        });
-
-        gPolylineRef.current = new window.google.maps.Polyline({
-          path: gPath,
-          geodesic: true,
-          strokeColor: '#0D6E42',
-          strokeOpacity: 0.95,
-          strokeWeight: 5,
-          map: googleMapRef.current
-        });
-
-        const bounds = new window.google.maps.LatLngBounds();
-        gPath.forEach(pt => bounds.extend(pt));
-        googleMapRef.current.fitBounds(bounds);
-        setRoutingLoading(false);
-        return;
-      } catch (e) {}
-    }
-
-    // 2. Leaflet Fallback Rendering
-    if (mapInstance.current) {
-      if (routePolylineRef.current) mapInstance.current.removeLayer(routePolylineRef.current);
-      if (pickupMarkerRef.current) mapInstance.current.removeLayer(pickupMarkerRef.current);
-      if (destMarkerRef.current) mapInstance.current.removeLayer(destMarkerRef.current);
-
-      pickupMarkerRef.current = L.marker([startLoc.lat, startLoc.lng]).addTo(mapInstance.current).bindPopup(`📍 Pickup: ${startLoc.name}`);
-      destMarkerRef.current = L.marker([endLoc.lat, endLoc.lng]).addTo(mapInstance.current).bindPopup(`🏁 Destination: ${endLoc.name}`);
-
-      routePolylineRef.current = L.polyline(roadWaypoints, { color: '#0D6E42', weight: 5, opacity: 0.95 }).addTo(mapInstance.current);
-      mapInstance.current.fitBounds(routePolylineRef.current.getBounds(), { padding: [35, 35] });
-    }
-
+    await fetchOSRMRoadRoute(startLoc.lat, startLoc.lng, endLoc.lat, endLoc.lng);
     setRoutingLoading(false);
   };
 
-  // Select Pickup Autocomplete Suggestion
-  const selectPickupSuggestion = async (item) => {
-    setPickup(item.label);
-    setShowPickupDropdown(false);
-
-    if (item.placeId && typeof window.google !== 'undefined' && window.google.maps && window.google.maps.places) {
-      try {
-        const dummyDiv = document.createElement('div');
-        const service = new window.google.maps.places.PlacesService(dummyDiv);
-        service.getDetails({ placeId: item.placeId }, async (place, status) => {
-          if (status === 'OK' && place.geometry) {
-            const locObj = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng(), name: item.label };
-            pickupLocRef.current = locObj;
-            await drawRoadRouteOnMap(locObj, null);
-            return;
-          }
-          fallbackGeocodeAndDraw(item.label, 'PICKUP');
-        });
-        return;
-      } catch (e) {}
-    }
-
-    const locObj = { lat: item.lat || 12.9279, lng: item.lng || 77.6772, name: item.label };
-    pickupLocRef.current = locObj;
-    await drawRoadRouteOnMap(locObj, null);
-  };
-
-  // Select Destination Autocomplete Suggestion
-  const selectDestSuggestion = async (item) => {
-    setDestination(item.label);
-    setShowDestDropdown(false);
-
-    if (item.placeId && typeof window.google !== 'undefined' && window.google.maps && window.google.maps.places) {
-      try {
-        const dummyDiv = document.createElement('div');
-        const service = new window.google.maps.places.PlacesService(dummyDiv);
-        service.getDetails({ placeId: item.placeId }, async (place, status) => {
-          if (status === 'OK' && place.geometry) {
-            const locObj = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng(), name: item.label };
-            destLocRef.current = locObj;
-            await drawRoadRouteOnMap(null, locObj);
-            return;
-          }
-          fallbackGeocodeAndDraw(item.label, 'DEST');
-        });
-        return;
-      } catch (e) {}
-    }
-
-    const locObj = { lat: item.lat || 12.8452, lng: item.lng || 77.6602, name: item.label };
-    destLocRef.current = locObj;
-    await drawRoadRouteOnMap(null, locObj);
-  };
-
-  // Fallback Geocode & Draw
-  const fallbackGeocodeAndDraw = async (address, type) => {
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`);
-      const data = await res.json();
-      if (data && data.length > 0) {
-        const locObj = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), name: address };
-        if (type === 'PICKUP') {
-          pickupLocRef.current = locObj;
-          await drawRoadRouteOnMap(locObj, null);
-        } else {
-          destLocRef.current = locObj;
-          await drawRoadRouteOnMap(null, locObj);
-        }
-      }
-    } catch (e) {}
-  };
-
-  // Set Location from Preset Shortcuts
-  const setPresetLocation = async (type, locObj) => {
-    if (type === 'PICKUP') {
-      setPickup(locObj.name);
-      pickupLocRef.current = locObj;
-      await drawRoadRouteOnMap(locObj, null);
-    } else {
-      setDestination(locObj.name);
-      destLocRef.current = locObj;
-      await drawRoadRouteOnMap(null, locObj);
-    }
-  };
-
-  // Primary Google Maps Initialization (with Leaflet fallback)
   useEffect(() => {
     if (step === 'SEARCH' && mapRef.current) {
-      // 1. Try Official Google Maps Canvas
-      if (typeof window.google !== 'undefined' && window.google.maps) {
-        try {
-          const beigeMapStyle = [
-            { elementType: "geometry", stylers: [{ color: "#f5f3ed" }] },
-            { elementType: "labels.text.fill", stylers: [{ color: "#003366" }] },
-            { elementType: "labels.text.stroke", stylers: [{ color: "#f5f3ed" }] },
-            { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#003366" }] },
-            { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#003366" }] },
-            { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#d2ebd0" }] },
-            { featureType: "poi.park", elementType: "labels.text.fill", stylers: [{ color: "#4f7754" }] },
-            { featureType: "road", elementType: "geometry", stylers: [{ color: "#ffffff" }] },
-            { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#d6d2c4" }] },
-            { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#e4dfce" }] },
-            { featureType: "water", elementType: "geometry", stylers: [{ color: "#b9d3c2" }] }
-          ];
-
-          googleMapRef.current = new window.google.maps.Map(mapRef.current, {
-            center: { lat: pickupLocRef.current.lat, lng: pickupLocRef.current.lng },
-            zoom: 12,
-            styles: beigeMapStyle,
-            disableDefaultUI: true
-          });
-
-          // Google Maps Click Listener
-          googleMapRef.current.addListener('click', (e) => {
-            const lat = e.latLng.lat();
-            const lng = e.latLng.lng();
-            const geocoder = new window.google.maps.Geocoder();
-            geocoder.geocode({ location: { lat, lng } }, async (results, status) => {
-              const placeName = (status === 'OK' && results && results[0])
-                ? results[0].formatted_address.split(',').slice(0, 3).join(',')
-                : `Map Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
-
-              const clickedLoc = { lat, lng, name: placeName };
-              setDestination(placeName);
-              destLocRef.current = clickedLoc;
-              await drawRoadRouteOnMap(null, clickedLoc);
-            });
-          });
-
-          drawRoadRouteOnMap();
-          return;
-        } catch (e) {}
-      }
-
-      // 2. Leaflet Fallback Map
       if (mapInstance.current) {
         mapInstance.current.remove();
         mapInstance.current = null;
       }
 
-      mapInstance.current = L.map(mapRef.current).setView([pickupLocRef.current.lat, pickupLocRef.current.lng], 12);
+      mapInstance.current = L.map(mapRef.current).setView([pickupLocRef.current.lat, pickupLocRef.current.lng], 11);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap'
       }).addTo(mapInstance.current);
 
-      // Interactive Map Click Location Selection
-      mapInstance.current.on('click', async (e) => {
-        const { lat, lng } = e.latlng;
-        try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
-          const data = await res.json();
-          const placeName = data.display_name ? data.display_name.split(',').slice(0, 3).join(',') : `Map Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
-
-          const clickedLoc = { lat, lng, name: placeName };
-          setDestination(placeName);
-          destLocRef.current = clickedLoc;
-          await drawRoadRouteOnMap(null, clickedLoc);
-        } catch (err) {}
-      });
-
       drawRoadRouteOnMap();
     }
-
-    return () => {
-      if (mapInstance.current) {
-        mapInstance.current.remove();
-        mapInstance.current = null;
-      }
-    };
   }, [step]);
 
-  // Actual Real-Time GPS Pickup Location Fetching
   const fetchCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser');
-      return;
-    }
-
+    if (!navigator.geolocation) return;
     setFetchingGPS(true);
-
     navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
-        try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
-          const data = await res.json();
-          const placeName = data.display_name
-            ? data.display_name.split(',').slice(0, 3).join(',')
-            : `GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
-
-          const gpsLoc = { lat: latitude, lng: longitude, name: placeName };
-          setPickup(placeName);
-          pickupLocRef.current = gpsLoc;
-          await drawRoadRouteOnMap(gpsLoc, null);
-        } catch (err) {
-          const fallbackGps = { lat: latitude, lng: longitude, name: `Current Location (${latitude.toFixed(4)}, ${longitude.toFixed(4)})` };
-          setPickup(fallbackGps.name);
-          pickupLocRef.current = fallbackGps;
-          await drawRoadRouteOnMap(fallbackGps, null);
-        } finally {
-          setFetchingGPS(false);
-        }
-      },
-      (error) => {
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const gpsLoc = { lat: latitude, lng: longitude, name: `GPS Location (${latitude.toFixed(4)}, ${longitude.toFixed(4)})` };
+        setPickup(gpsLoc.name);
+        pickupLocRef.current = gpsLoc;
+        await drawRoadRouteOnMap(gpsLoc, null);
         setFetchingGPS(false);
-        alert(`Could not fetch location: ${error.message}`);
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      () => setFetchingGPS(false)
     );
   };
 
-  // Actual Real-Time GPS Destination Location Fetching
   const fetchDestinationLocation = () => {
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser');
-      return;
-    }
-
+    if (!navigator.geolocation) return;
     setFetchingDestGPS(true);
-
     navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
-        try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
-          const data = await res.json();
-          const placeName = data.display_name
-            ? data.display_name.split(',').slice(0, 3).join(',')
-            : `GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
-
-          const gpsLoc = { lat: latitude, lng: longitude, name: placeName };
-          setDestination(placeName);
-          destLocRef.current = gpsLoc;
-          await drawRoadRouteOnMap(null, gpsLoc);
-        } catch (err) {
-          const fallbackGps = { lat: latitude, lng: longitude, name: `Destination GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})` };
-          setDestination(fallbackGps.name);
-          destLocRef.current = fallbackGps;
-          await drawRoadRouteOnMap(null, fallbackGps);
-        } finally {
-          setFetchingDestGPS(false);
-        }
-      },
-      (error) => {
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const gpsLoc = { lat: latitude, lng: longitude, name: `Dest GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})` };
+        setDestination(gpsLoc.name);
+        destLocRef.current = gpsLoc;
+        await drawRoadRouteOnMap(null, gpsLoc);
         setFetchingDestGPS(false);
-        alert(`Could not fetch destination location: ${error.message}`);
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      () => setFetchingDestGPS(false)
     );
   };
 
   const handleSearchRides = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setMsg('');
     try {
       const res = await fetch('/api/rides/search', {
         method: 'POST',
@@ -496,13 +283,14 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ pickup, destination, seats })
+        body: JSON.stringify({ pickupName: pickup, destinationName: destination, seats })
       });
       const data = await res.json();
-      setRides(data);
+      const list = Array.isArray(data) ? data : (data.results || data.rides || []);
+      setRides(list);
       setStep('RESULTS');
     } catch (err) {
-      alert('Error searching rides');
+      setMsg('❌ Error searching rides');
     } finally {
       setLoading(false);
     }
@@ -516,21 +304,35 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ rideId, seatsBooked: seats })
+        body: JSON.stringify({ rideId, seatsBooked: seats, paymentMethod: 'UPI' })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error(data.error || 'Failed to book trip');
 
-      setBookedTrip(data);
-      setActiveTab('TRIPS');
+      setBookedTrip(data.trip || data);
+      if (setActiveTab) setActiveTab('TRIPS');
     } catch (err) {
-      alert(err.message);
+      alert(`Booking Error: ${err.message}`);
     }
   };
 
   return (
-    <div>
-      <h3 style={{ fontSize: '1.2rem', fontWeight: '800', marginBottom: '14px' }}>Find a Ride</h3>
+    <div className="view-transition">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div>
+          <h3 style={{ fontSize: '1.3rem', fontWeight: '800', color: '#11281A', fontFamily: 'Outfit, sans-serif' }}>Find a Ride</h3>
+          <p style={{ fontSize: '0.8rem', color: '#5D7063' }}>Search active shared commute routes</p>
+        </div>
+        <div className="badge badge-emerald">
+          <i className="fa-solid fa-magnifying-glass"></i> Rider Mode
+        </div>
+      </div>
+
+      {msg && (
+        <div style={{ padding: '10px 14px', borderRadius: '12px', background: 'rgba(231, 76, 60, 0.1)', color: '#c0392b', border: '1px solid rgba(231, 76, 60, 0.25)', fontSize: '0.82rem', fontWeight: '700', marginBottom: '14px' }}>
+          {msg}
+        </div>
+      )}
 
       {step === 'SEARCH' ? (
         <form onSubmit={handleSearchRides}>
@@ -538,12 +340,12 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
           <div style={{ position: 'relative' }}>
             <div className="map-view-container" ref={mapRef}></div>
             {routingLoading ? (
-              <div style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(5, 59, 34, 0.9)', padding: '6px 14px', borderRadius: '20px', color: '#FFFFFF', fontSize: '0.78rem', fontWeight: '700', zIndex: 500, boxShadow: '0 4px 15px rgba(0,0,0,0.15)' }}>
+              <div style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(5, 59, 34, 0.9)', padding: '6px 14px', borderRadius: '20px', color: '#FFFFFF', fontSize: '0.78rem', fontWeight: '700', zIndex: 500 }}>
                 <i className="fa-solid fa-spinner fa-spin"></i> Calculating Route...
               </div>
             ) : (
-              <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'rgba(255, 255, 255, 0.92)', padding: '6px 12px', borderRadius: '20px', color: '#0D6E42', fontSize: '0.74rem', fontWeight: '700', zIndex: 500, border: '1px solid #E8E1D3', boxShadow: '0 2px 10px rgba(0,0,0,0.06)' }}>
-                <i className="fa-solid fa-hand-pointer" style={{ color: '#0D6E42' }}></i> Click map to drop pin
+              <div style={{ position: 'absolute', top: '10px', left: '10px', background: '#FFFFFF', padding: '6px 12px', borderRadius: '20px', color: '#0D6E42', fontSize: '0.74rem', fontWeight: '700', zIndex: 500, border: '1px solid #E8E1D3' }}>
+                <i className="fa-solid fa-map-location-dot" style={{ color: '#0D6E42' }}></i> Map Route Active
               </div>
             )}
           </div>
@@ -552,7 +354,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
           {routeInfo.distanceKm !== null && (
             <div style={{
               display: 'flex',
-              justifyContent: 'center',
+              justify: 'center',
               alignItems: 'center',
               gap: '10px',
               background: '#FFFFFF',
@@ -572,7 +374,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
           <div className="card">
             {/* Pickup Location Field & Autocomplete Dropdown */}
             <div className="input-group">
-              <label className="input-label"><i className="fa-solid fa-location-dot" style={{ color: '#10b981' }}></i> Pickup Location</label>
+              <label className="input-label"><i className="fa-solid fa-location-dot" style={{ color: '#0D6E42' }}></i> Pickup Location</label>
               <input 
                 type="text" 
                 className="input-field" 
@@ -580,7 +382,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                 onChange={handlePickupChange} 
                 onFocus={() => pickupSuggestions.length > 0 && setShowPickupDropdown(true)}
                 onBlur={() => setTimeout(() => setShowPickupDropdown(false), 250)}
-                placeholder="Type any area, landmark, or street..."
+                placeholder="Type area name (e.g. Salt Lake, Barasat)..."
                 required 
               />
 
@@ -592,10 +394,10 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                       className="autocomplete-item"
                       onMouseDown={() => selectPickupSuggestion(item)}
                     >
-                      <i className="fa-solid fa-location-dot" style={{ color: '#10b981' }}></i>
+                      <i className="fa-solid fa-location-dot" style={{ color: '#0D6E42' }}></i>
                       <div>
-                        <div style={{ fontWeight: '600' }}>{item.label}</div>
-                        <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{item.fullAddress}</div>
+                        <div style={{ fontWeight: '700', color: '#11281A' }}>{item.label}</div>
+                        <div style={{ fontSize: '0.72rem', color: '#5D7063' }}>{item.fullAddress}</div>
                       </div>
                     </li>
                   ))}
@@ -603,7 +405,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
               )}
             </div>
 
-            {/* Pickup Location Shortcuts & GPS Fetcher */}
+            {/* Polished Minimal Emerald Quick Pills */}
             <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
               <button 
                 type="button" 
@@ -612,9 +414,9 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                 style={{ 
                   padding: '6px 12px', 
                   borderRadius: '16px', 
-                  border: '1px solid #10b981', 
-                  background: 'rgba(16, 185, 129, 0.15)', 
-                  color: '#10b981', 
+                  border: '1px solid #0D6E42', 
+                  background: 'rgba(13, 110, 66, 0.1)', 
+                  color: '#0D6E42', 
                   fontSize: '0.78rem',
                   fontWeight: '700',
                   cursor: 'pointer',
@@ -624,21 +426,29 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                 }}
               >
                 <i className={`fa-solid ${fetchingGPS ? 'fa-spinner fa-spin' : 'fa-location-crosshairs'}`}></i> 
-                {fetchingGPS ? 'Fetching GPS...' : 'Use Current GPS'}
+                {fetchingGPS ? 'Fetching GPS...' : 'GPS Location'}
               </button>
 
-              <button type="button" onClick={() => setPresetLocation('PICKUP', { lat: 12.9279, lng: 77.6772, name: 'Bellandur, Bengaluru' })} style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #334155', background: '#1e293b', color: '#94a3b8', fontSize: '0.78rem', cursor: 'pointer' }}>
+              <button 
+                type="button" 
+                onClick={() => setPresetLocation('PICKUP', { lat: 22.5726, lng: 88.4337, name: 'Salt Lake Sector V, Kolkata' })} 
+                style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #E8E1D3', background: '#F4EFE6', color: '#0D6E42', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s ease' }}
+              >
                 <i className="fa-solid fa-house"></i> Home
               </button>
               
-              <button type="button" onClick={() => setPresetLocation('PICKUP', { lat: 22.7214, lng: 88.4816, name: 'Barasat, Kolkata' })} style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #334155', background: '#1e293b', color: '#94a3b8', fontSize: '0.78rem', cursor: 'pointer' }}>
+              <button 
+                type="button" 
+                onClick={() => setPresetLocation('PICKUP', { lat: 22.7214, lng: 88.4816, name: 'Barasat Junction, Kolkata' })} 
+                style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #E8E1D3', background: '#F4EFE6', color: '#0D6E42', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s ease' }}
+              >
                 <i className="fa-solid fa-location-dot"></i> Barasat
               </button>
             </div>
 
             {/* Destination Location Field & Autocomplete Dropdown */}
             <div className="input-group">
-              <label className="input-label"><i className="fa-solid fa-flag-checkered" style={{ color: '#ef4444' }}></i> Destination Location</label>
+              <label className="input-label"><i className="fa-solid fa-flag-checkered" style={{ color: '#c0392b' }}></i> Destination Location</label>
               <input 
                 type="text" 
                 className="input-field" 
@@ -658,10 +468,10 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                       className="autocomplete-item"
                       onMouseDown={() => selectDestSuggestion(item)}
                     >
-                      <i className="fa-solid fa-flag-checkered" style={{ color: '#ef4444' }}></i>
+                      <i className="fa-solid fa-flag-checkered" style={{ color: '#c0392b' }}></i>
                       <div>
-                        <div style={{ fontWeight: '600' }}>{item.label}</div>
-                        <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{item.fullAddress}</div>
+                        <div style={{ fontWeight: '700', color: '#11281A' }}>{item.label}</div>
+                        <div style={{ fontSize: '0.72rem', color: '#5D7063' }}>{item.fullAddress}</div>
                       </div>
                     </li>
                   ))}
@@ -669,7 +479,7 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
               )}
             </div>
 
-            {/* Destination Location Shortcuts & GPS Fetcher */}
+            {/* Destination Shortcuts & GPS Fetcher */}
             <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
               <button 
                 type="button" 
@@ -678,9 +488,9 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                 style={{ 
                   padding: '6px 12px', 
                   borderRadius: '16px', 
-                  border: '1px solid #ef4444', 
-                  background: 'rgba(239, 68, 68, 0.15)', 
-                  color: '#f87171', 
+                  border: '1px solid #c0392b', 
+                  background: 'rgba(231, 76, 60, 0.08)', 
+                  color: '#c0392b', 
                   fontSize: '0.78rem',
                   fontWeight: '700',
                   cursor: 'pointer',
@@ -690,21 +500,29 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
                 }}
               >
                 <i className={`fa-solid ${fetchingDestGPS ? 'fa-spinner fa-spin' : 'fa-location-crosshairs'}`}></i> 
-                {fetchingDestGPS ? 'Fetching Destination...' : 'Use Current GPS as Dest'}
+                {fetchingDestGPS ? 'Fetching Dest GPS...' : 'GPS Dest'}
               </button>
 
-              <button type="button" onClick={() => setPresetLocation('DEST', { lat: 22.6547, lng: 88.4467, name: 'Kolkata Airport (CCU)' })} style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #334155', background: '#1e293b', color: '#94a3b8', fontSize: '0.78rem', cursor: 'pointer' }}>
+              <button 
+                type="button" 
+                onClick={() => setPresetLocation('DEST', { lat: 22.6547, lng: 88.4467, name: 'Kolkata Airport (CCU)' })} 
+                style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #E8E1D3', background: '#F4EFE6', color: '#0D6E42', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s ease' }}
+              >
                 <i className="fa-solid fa-plane-departure"></i> Airport
               </button>
 
-              <button type="button" onClick={() => setPresetLocation('DEST', { lat: 12.8452, lng: 77.6602, name: 'Electronic City, Bengaluru' })} style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #334155', background: '#1e293b', color: '#94a3b8', fontSize: '0.78rem', cursor: 'pointer' }}>
+              <button 
+                type="button" 
+                onClick={() => setPresetLocation('DEST', { lat: 12.8452, lng: 77.6602, name: 'Electronic City HQ' })} 
+                style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid #E8E1D3', background: '#F4EFE6', color: '#0D6E42', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s ease' }}
+              >
                 <i className="fa-solid fa-briefcase"></i> E-City HQ
               </button>
             </div>
 
             <div style={{ display: 'flex', gap: '12px' }}>
               <div className="input-group" style={{ flex: 1 }}>
-                <label className="input-label">Seats Needed</label>
+                <label className="input-label"><i className="fa-solid fa-chair" style={{ color: '#0D6E42' }}></i> Seats Needed</label>
                 <select className="input-field" value={seats} onChange={(e) => setSeats(e.target.value)}>
                   <option value={1}>1 Seat</option>
                   <option value={2}>2 Seats</option>
@@ -713,16 +531,16 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
               </div>
 
               <div className="input-group" style={{ flex: 1 }}>
-                <label className="input-label">Schedule</label>
-                <div style={{ padding: '10px', background: '#1e293b', borderRadius: '8px', border: '1px solid #334155', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <input type="checkbox" id="recurring" checked={recurring} onChange={(e) => setRecurring(e.target.checked)} />
-                  <label htmlFor="recurring" style={{ cursor: 'pointer', color: '#cbd5e1' }}>Daily Pass</label>
+                <label className="input-label"><i className="fa-solid fa-calendar-days" style={{ color: '#0D6E42' }}></i> Commute Pass</label>
+                <div style={{ padding: '10px 12px', background: '#F4EFE6', borderRadius: '12px', border: '1px solid #E8E1D3', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input type="checkbox" id="recurring" checked={recurring} onChange={(e) => setRecurring(e.target.checked)} style={{ accentColor: '#0D6E42', width: '16px', height: '16px' }} />
+                  <label htmlFor="recurring" style={{ cursor: 'pointer', color: '#0D6E42', fontWeight: '800' }}>Daily Pass</label>
                 </div>
               </div>
             </div>
 
-            <button type="submit" className="btn" disabled={loading}>
-              {loading ? 'Searching Rides...' : 'Find Available Rides'} <i className="fa-solid fa-magnifying-glass"></i>
+            <button type="submit" className="btn" disabled={loading} style={{ marginTop: '6px' }}>
+              {loading ? 'Searching Available Rides...' : 'Find Available Rides'} <i className="fa-solid fa-magnifying-glass"></i>
             </button>
           </div>
         </form>
@@ -751,43 +569,48 @@ function FindRideView({ token, walletBalance, setWalletBalance, setActiveTab }) 
           ) : rides.length === 0 ? (
             <div className="card" style={{ textAlign: 'center', padding: '35px 20px' }}>
               <i className="fa-solid fa-car-burst" style={{ fontSize: '2.2rem', color: '#8E9F93', marginBottom: '12px' }}></i>
-              <p style={{ color: '#5D7063', fontWeight: '500' }}>No co-worker rides found matching your exact route.</p>
+              <p style={{ color: '#5D7063', fontWeight: '600' }}>No active rides found matching your exact route.</p>
+              <button onClick={() => setStep('SEARCH')} className="btn" style={{ width: 'auto', marginTop: '14px', padding: '8px 18px', fontSize: '0.82rem' }}>
+                Search All Available Rides
+              </button>
             </div>
           ) : (
-            rides.map(ride => (
-              <div key={ride._id} className="ride-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div className="avatar-circle">{ride.driverName.charAt(0)}</div>
-                    <div>
-                      <div style={{ fontWeight: '700', fontSize: '0.95rem' }}>{ride.driverName}</div>
-                      <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}><i className="fa-solid fa-car"></i> {ride.vehicleModel}</div>
+            rides.map(ride => {
+              const driverName = ride.driverId ? (ride.driverId.name || ride.driverName) : (ride.driverName || 'Corporate Driver');
+              const vehicleModel = ride.vehicleId ? (ride.vehicleId.vehicleModel || ride.vehicleId.model || ride.vehicleModel) : (ride.vehicleModel || 'Corporate Car');
+              const pickupText = ride.pickupLocation ? (ride.pickupLocation.address || ride.pickupLocation.name || 'Pickup Point') : 'Pickup Point';
+              const destText = ride.destinationLocation ? (ride.destinationLocation.address || ride.destinationLocation.name || 'Destination Point') : (ride.destination ? (ride.destination.address || ride.destination.name) : 'Destination Point');
+
+              return (
+                <div key={ride._id} className="ride-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div className="avatar-circle">{driverName.charAt(0)}</div>
+                      <div>
+                        <div style={{ fontWeight: '800', fontSize: '0.95rem', color: '#11281A' }}>{driverName}</div>
+                        <div style={{ fontSize: '0.78rem', color: '#5D7063' }}><i className="fa-solid fa-car-side" style={{ color: '#0D6E42' }}></i> {vehicleModel}</div>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '1.2rem', fontWeight: '800', color: '#0D6E42' }}>₹{ride.farePerSeat}</div>
+                      <div style={{ fontSize: '0.7rem', color: '#5D7063', fontWeight: '600' }}>per seat</div>
                     </div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '1.2rem', fontWeight: '800', color: '#10b981' }}>₹{ride.farePerSeat}</div>
-                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>per seat</div>
+
+                  <div style={{ fontSize: '0.82rem', color: '#11281A', marginBottom: '12px', padding: '10px', background: '#F4EFE6', borderRadius: '12px', border: '1px solid #E8E1D3' }}>
+                    <div><strong style={{ color: '#0D6E42' }}>From:</strong> {pickupText}</div>
+                    <div style={{ marginTop: '4px' }}><strong style={{ color: '#c0392b' }}>To:</strong> {destText}</div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span className="badge badge-emerald"><i className="fa-solid fa-chair"></i> {ride.availableSeats} seats left</span>
+                    <button onClick={() => handleBookRide(ride._id)} className="btn" style={{ width: 'auto', padding: '8px 16px', fontSize: '0.82rem' }}>
+                      Book Seat <i className="fa-solid fa-chevron-right"></i>
+                    </button>
                   </div>
                 </div>
-
-                <div style={{ fontSize: '0.82rem', color: '#cbd5e1', marginBottom: '12px', padding: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
-                  <div><strong style={{ color: '#10b981' }}>From:</strong> {ride.pickupLocation.name || ride.pickupLocation}</div>
-                  <div style={{ marginTop: '4px' }}><strong style={{ color: '#ef4444' }}>To:</strong> {ride.destinationLocation.name || ride.destinationLocation}</div>
-                  {ride.co2SavedKg && (
-                    <div style={{ marginTop: '6px', color: '#10b981', fontSize: '0.78rem' }}>
-                      <i className="fa-solid fa-leaf"></i> Estimated CO₂ Offset: <strong>{ride.co2SavedKg} kg</strong>
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="badge badge-emerald"><i className="fa-solid fa-chair"></i> {ride.availableSeats} seats left</span>
-                  <button onClick={() => handleBookRide(ride._id)} className="btn btn-secondary" style={{ width: 'auto', padding: '8px 16px', fontSize: '0.85rem' }}>
-                    Book Seat <i className="fa-solid fa-chevron-right"></i>
-                  </button>
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       )}

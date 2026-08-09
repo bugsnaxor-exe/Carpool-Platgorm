@@ -72,24 +72,64 @@ const publishRide = catchAsync(async (user, body) => {
 const searchRides = catchAsync(async (user, body, queryParams = {}) => {
   try {
     if (!user) return { status: 401, data: { error: 'Unauthorized' } };
-    const { pickupName, destinationName, date, lng, lat } = { ...queryParams, ...(body || {}) };
+    const { pickupName, destinationName, pickup, destination } = { ...queryParams, ...(body || {}) };
+    const searchPickup = (pickupName || pickup || '').trim();
+    const searchDest = (destinationName || destination || '').trim();
 
-    const query = {
-      status: { $in: ['OPEN', 'Scheduled', 'Active'] },
+    let query = {
+      status: { $in: ['OPEN', 'Scheduled', 'Active', 'Ongoing'] },
       availableSeats: { $gt: 0 }
     };
 
-    if (pickupName) {
-      query['pickupLocation.address'] = { $regex: pickupName.trim(), $options: 'i' };
-    }
-    if (destinationName) {
-      query['destinationLocation.address'] = { $regex: destinationName.trim(), $options: 'i' };
+    if (searchPickup && searchDest) {
+      query.$and = [
+        {
+          $or: [
+            { 'pickupLocation.address': { $regex: searchPickup, $options: 'i' } },
+            { 'pickupLocation.name': { $regex: searchPickup, $options: 'i' } },
+            { driverName: { $regex: searchPickup, $options: 'i' } }
+          ]
+        },
+        {
+          $or: [
+            { 'destinationLocation.address': { $regex: searchDest, $options: 'i' } },
+            { 'destinationLocation.name': { $regex: searchDest, $options: 'i' } },
+            { 'destination.address': { $regex: searchDest, $options: 'i' } },
+            { 'destination.name': { $regex: searchDest, $options: 'i' } }
+          ]
+        }
+      ];
+    } else if (searchPickup) {
+      query.$or = [
+        { 'pickupLocation.address': { $regex: searchPickup, $options: 'i' } },
+        { 'pickupLocation.name': { $regex: searchPickup, $options: 'i' } },
+        { driverName: { $regex: searchPickup, $options: 'i' } }
+      ];
+    } else if (searchDest) {
+      query.$or = [
+        { 'destinationLocation.address': { $regex: searchDest, $options: 'i' } },
+        { 'destinationLocation.name': { $regex: searchDest, $options: 'i' } },
+        { 'destination.address': { $regex: searchDest, $options: 'i' } },
+        { 'destination.name': { $regex: searchDest, $options: 'i' } }
+      ];
     }
 
-    const rides = await Ride.find(query)
+    let rides = await Ride.find(query)
       .populate('driverId', 'name phone email')
       .populate('vehicleId', 'vehicleModel model registrationNumber seatingCapacity')
       .sort({ travelDate: 1, travelDateTime: 1 });
+
+    // Fallback: If strict query yielded 0 results, return all open rides so user is never blocked
+    if (rides.length === 0) {
+      rides = await Ride.find({
+        status: { $in: ['OPEN', 'Scheduled', 'Active', 'Ongoing'] },
+        availableSeats: { $gt: 0 }
+      })
+        .populate('driverId', 'name phone email')
+        .populate('vehicleId', 'vehicleModel model registrationNumber seatingCapacity')
+        .sort({ createdAt: -1 })
+        .limit(10);
+    }
 
     return { status: 200, data: { results: rides, rides } };
   } catch (err) {
