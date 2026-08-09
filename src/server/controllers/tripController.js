@@ -42,29 +42,51 @@ const bookTrip = catchAsync(async (user, body) => {
       sosAlerts: []
     });
 
-    return { status: 201, data: trip };
+    return { status: 201, data: { message: 'Trip booked successfully', trip } };
   } catch (err) {
     console.error(`[Book Trip Error] ${err.message}`, err);
     return { status: 500, data: { error: 'Failed to book trip', details: err.message } };
   }
 });
 
-const getMyTrips = catchAsync(async (user) => {
+const getMyTrips = catchAsync(async (user, queryParams = {}) => {
   try {
     if (!user) return { status: 401, data: { error: 'Unauthorized' } };
+    const { role } = queryParams;
 
-    const trips = await Trip.find({
-      $or: [{ passengerId: user._id }, { driverId: user._id }]
-    })
+    let filter = {};
+    if (role === 'driver') {
+      filter = { driverId: user._id };
+    } else if (role === 'passenger') {
+      filter = { passengerId: user._id };
+    } else {
+      filter = { $or: [{ passengerId: user._id }, { driverId: user._id }] };
+    }
+
+    const trips = await Trip.find(filter)
       .populate('rideId')
       .populate('passengerId', 'name email phone mobileNumber')
       .populate('driverId', 'name email phone mobileNumber')
       .sort({ createdAt: -1 });
 
-    return { status: 200, data: trips };
+    return { status: 200, data: { results: trips, trips } };
   } catch (err) {
     console.error(`[Get My Trips Error] ${err.message}`, err);
     return { status: 500, data: { error: 'Failed to retrieve trip history', details: err.message } };
+  }
+});
+
+const getTripDetails = catchAsync(async (user, tripId) => {
+  try {
+    const trip = await Trip.findById(tripId)
+      .populate('passengerId', 'name phone email')
+      .populate('driverId', 'name phone email')
+      .populate('rideId', 'pickupLocation destinationLocation destination travelDateTime travelDate');
+
+    if (!trip) return { status: 404, data: { error: 'Trip not found' } };
+    return { status: 200, data: trip };
+  } catch (err) {
+    return { status: 500, data: { error: 'Failed to retrieve trip details', details: err.message } };
   }
 });
 
@@ -89,10 +111,28 @@ const updateTripStatus = catchAsync(async (user, tripId, body) => {
       }
     }
 
-    return { status: 200, data: trip };
+    return { status: 200, data: { message: `Trip marked as ${newStatus}`, trip } };
   } catch (err) {
     console.error(`[Update Trip Status Error] ${err.message}`, err);
     return { status: 500, data: { error: 'Failed to update trip status', details: err.message } };
+  }
+});
+
+const updatePaymentStatus = catchAsync(async (user, tripId, body) => {
+  try {
+    if (!user) return { status: 401, data: { error: 'Unauthorized' } };
+    const { paymentStatus, paymentMethod } = body;
+
+    const trip = await Trip.findById(tripId);
+    if (!trip) return { status: 404, data: { error: 'Trip not found' } };
+
+    if (paymentStatus) trip.paymentStatus = paymentStatus;
+    if (paymentMethod) trip.paymentMethod = paymentMethod;
+    await trip.save();
+
+    return { status: 200, data: { message: 'Payment status updated', trip } };
+  } catch (err) {
+    return { status: 500, data: { error: 'Failed to update payment status', details: err.message } };
   }
 });
 
@@ -150,4 +190,13 @@ const getReceipt = catchAsync(async (user, tripId) => {
   }
 });
 
-module.exports = { bookTrip, getMyTrips, updateTripStatus, triggerSOS, getReceipt };
+module.exports = {
+  bookTrip,
+  getMyTrips,
+  getUserTrips: getMyTrips,
+  getTripDetails,
+  updateTripStatus,
+  updatePaymentStatus,
+  triggerSOS,
+  getReceipt
+};

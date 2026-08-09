@@ -6,7 +6,7 @@ const { hashPassword, verifyPassword, generateToken } = require('../utils/securi
 const { isDBConnected } = require('../config/db');
 const { catchAsync } = require('../utils/errorHandler');
 
-// In-Memory OTP Store (email -> { otp, expiresAt })
+// In-Memory OTP / Reset Store (email -> { otp, expiresAt })
 const otpStore = new Map();
 
 const login = catchAsync(async (body) => {
@@ -18,15 +18,15 @@ const login = catchAsync(async (body) => {
       };
     }
 
-    const { identifier, password } = body;
+    const { identifier, email, password } = body;
+    const rawId = identifier || email;
 
-    if (!identifier || !password) {
+    if (!rawId || !password) {
       return { status: 400, data: { error: 'Corporate email and password are required' } };
     }
 
-    const rawId = String(identifier).trim();
-    const cleanId = rawId.toLowerCase();
-    const digitsOnly = rawId.replace(/\D/g, '');
+    const cleanId = String(rawId).trim().toLowerCase();
+    const digitsOnly = String(rawId).replace(/\D/g, '');
 
     const user = await User.findOne({
       $or: [
@@ -46,7 +46,6 @@ const login = catchAsync(async (body) => {
       return { status: 401, data: { error: 'Invalid credentials. Please check your email and password.' } };
     }
 
-    // Update Login Metadata in MongoDB
     user.lastLoginAt = new Date();
     user.loginCount = (user.loginCount || 0) + 1;
     user.failedLoginAttempts = 0;
@@ -75,6 +74,7 @@ const login = catchAsync(async (body) => {
     return {
       status: 200,
       data: {
+        message: 'Login successful',
         user: {
           _id: user._id.toString(),
           name: user.name,
@@ -109,19 +109,16 @@ const sendOtp = catchAsync(async (body) => {
 
     const cleanEmail = email.trim().toLowerCase();
 
-    // Check if user already exists
     const existingUser = await User.findOne({ email: cleanEmail });
     if (existingUser) {
       return { status: 400, data: { error: `An account with email "${cleanEmail}" already exists. Please sign in instead.` } };
     }
 
-    // Generate 6-digit numeric OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
+    const expiresAt = Date.now() + 5 * 60 * 1000;
 
     otpStore.set(cleanEmail, { otp, expiresAt });
 
-    // Trigger Real Gmail OTP Delivery via Nodemailer if credentials exist in .env
     const { sendRealOtpEmail } = require('../utils/emailService');
     const emailSent = await sendRealOtpEmail(cleanEmail, otp);
 
@@ -188,8 +185,9 @@ const register = catchAsync(async (body) => {
     }
 
     const { name, email, mobileNumber, phone, password, companyCode, department, role } = body;
+    const targetPhone = phone || mobileNumber;
 
-    if (!name || (!email && !mobileNumber && !phone) || !password) {
+    if (!name || (!email && !targetPhone) || !password) {
       return { status: 400, data: { error: 'Name, Password, and Email or Phone Number are required' } };
     }
 
@@ -200,7 +198,7 @@ const register = catchAsync(async (body) => {
     }
 
     const cleanEmail = email ? email.trim().toLowerCase() : '';
-    const cleanMobile = mobileNumber ? mobileNumber.trim() : (phone ? phone.trim() : '');
+    const cleanMobile = targetPhone ? targetPhone.trim() : '';
 
     if (cleanEmail) {
       const existingByEmail = await User.findOne({ email: cleanEmail });
@@ -254,6 +252,7 @@ const register = catchAsync(async (body) => {
     return {
       status: 201,
       data: {
+        message: 'User registered successfully',
         user: {
           _id: newUser._id.toString(),
           name: newUser.name,
@@ -272,6 +271,65 @@ const register = catchAsync(async (body) => {
   } catch (err) {
     console.error(`[Auth Register Error] ${err.message}`, err);
     return { status: 500, data: { error: 'Registration failed', details: err.message } };
+  }
+});
+
+const forgotPassword = catchAsync(async (body) => {
+  try {
+    const { email } = body;
+    if (!email) return { status: 400, data: { error: 'Email is required' } };
+    const cleanEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: cleanEmail });
+    if (!user) return { status: 404, data: { error: 'No user registered with this email address' } };
+
+    const resetOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    user.otp = resetOtp;
+    user.otpExpires = new Date(Date.now() + 15 * 60 * 1000);
+    await user.save();
+
+    return { status: 200, data: { message: `Password reset OTP generated for ${cleanEmail}`, resetOtp } };
+  } catch (err) {
+    return { status: 500, data: { error: 'Forgot password process error', details: err.message } };
+  }
+});
+
+const resetPassword = catchAsync(async (body) => {
+  try {
+    const { email, otp, newPassword } = body;
+    if (!email || !newPassword) return { status: 400, data: { error: 'Email and new password are required' } };
+    const cleanEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: cleanEmail });
+    if (!user) return { status: 404, data: { error: 'User not found' } };
+
+    user.password = newPassword;
+    user.otp = undefined;
+    user.otpExpires = undefined;
+    await user.save();
+
+    return { status: 200, data: { message: 'Password has been reset successfully' } };
+  } catch (err) {
+    return { status: 500, data: { error: 'Reset password process error', details: err.message } };
+  }
+});
+
+const updateProfile = catchAsync(async (user, body) => {
+  try {
+    if (!user) return { status: 401, data: { error: 'Unauthorized' } };
+    const dbUser = await User.findById(user._id);
+    if (!dbUser) return { status: 404, data: { error: 'User not found' } };
+
+    const { name, phone, savedPlaces } = body;
+    if (name) dbUser.name = name.trim();
+    if (phone) {
+      dbUser.phone = phone.trim();
+      dbUser.mobileNumber = phone.trim();
+    }
+    if (savedPlaces) dbUser.savedPlaces = savedPlaces;
+
+    await dbUser.save();
+    return { status: 200, data: { message: 'Profile updated successfully', user: dbUser.toPublicJSON() } };
+  } catch (err) {
+    return { status: 500, data: { error: 'Update profile error', details: err.message } };
   }
 });
 
@@ -320,4 +378,15 @@ const getMe = catchAsync(async (user) => {
   }
 });
 
-module.exports = { login, sendOtp, verifyOtpAndRegister, register, getMe };
+module.exports = {
+  login,
+  loginWithEmail: login,
+  registerUser: register,
+  sendOtp,
+  verifyOtpAndRegister,
+  register,
+  forgotPassword,
+  resetPassword,
+  updateProfile,
+  getMe
+};

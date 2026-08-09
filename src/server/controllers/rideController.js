@@ -7,7 +7,7 @@ const publishRide = catchAsync(async (user, body) => {
   try {
     if (!user) return { status: 401, data: { error: 'Unauthorized' } };
 
-    const { vehicleId, pickupLocation, destinationLocation, destination, travelDateTime, travelDate, totalSeats, farePerSeat, recurring } = body;
+    const { vehicleId, pickupLocation, destinationLocation, destination, travelDateTime, travelDate, totalSeats, availableSeats, farePerSeat, recurring } = body;
 
     if (!vehicleId || !pickupLocation || (!destinationLocation && !destination) || (!travelDateTime && !travelDate) || !totalSeats || !farePerSeat) {
       return { status: 400, data: { error: 'All ride publication parameters are required' } };
@@ -22,7 +22,7 @@ const publishRide = catchAsync(async (user, body) => {
 
     const pickupFormatted = typeof pickupLocation === 'object' ? {
       type: 'Point',
-      coordinates: pickupLocation.coordinates || [pickupLocation.lng || 77.5946, pickupLocation.lat || 12.9716],
+      coordinates: pickupLocation.coordinates || [Number(pickupLocation.lng || 77.5946), Number(pickupLocation.lat || 12.9716)],
       address: pickupLocation.address || pickupLocation.name || 'Pickup Point',
       name: pickupLocation.name || pickupLocation.address || 'Pickup Point',
       lat: Number(pickupLocation.lat || (pickupLocation.coordinates ? pickupLocation.coordinates[1] : 12.9716)),
@@ -32,7 +32,7 @@ const publishRide = catchAsync(async (user, body) => {
     const targetDest = destinationLocation || destination;
     const destFormatted = typeof targetDest === 'object' ? {
       type: 'Point',
-      coordinates: targetDest.coordinates || [targetDest.lng || 77.6445, targetDest.lat || 12.9121],
+      coordinates: targetDest.coordinates || [Number(targetDest.lng || 77.6445), Number(targetDest.lat || 12.9121)],
       address: targetDest.address || targetDest.name || 'Destination Point',
       name: targetDest.name || targetDest.address || 'Destination Point',
       lat: Number(targetDest.lat || (targetDest.coordinates ? targetDest.coordinates[1] : 12.9121)),
@@ -54,7 +54,7 @@ const publishRide = catchAsync(async (user, body) => {
       travelDateTime: travelDateObj,
       travelDate: travelDateObj,
       totalSeats: Number(totalSeats),
-      availableSeats: Number(totalSeats),
+      availableSeats: Number(availableSeats || totalSeats),
       farePerSeat: Number(farePerSeat),
       recurring: !!recurring,
       routeDistanceKm: 14.5,
@@ -62,17 +62,17 @@ const publishRide = catchAsync(async (user, body) => {
       status: 'Scheduled'
     });
 
-    return { status: 201, data: newRide };
+    return { status: 201, data: { message: 'Ride published successfully', ride: newRide } };
   } catch (err) {
     console.error(`[Publish Ride Error] ${err.message}`, err);
     return { status: 500, data: { error: 'Failed to publish ride', details: err.message } };
   }
 });
 
-const searchRides = catchAsync(async (user, body) => {
+const searchRides = catchAsync(async (user, body, queryParams = {}) => {
   try {
     if (!user) return { status: 401, data: { error: 'Unauthorized' } };
-    const { pickupName, destinationName, date } = body || {};
+    const { pickupName, destinationName, date, lng, lat } = { ...queryParams, ...(body || {}) };
 
     const query = {
       status: { $in: ['OPEN', 'Scheduled', 'Active'] },
@@ -86,12 +86,34 @@ const searchRides = catchAsync(async (user, body) => {
       query['destinationLocation.address'] = { $regex: destinationName.trim(), $options: 'i' };
     }
 
-    const rides = await Ride.find(query).populate('driverId', 'name phone').populate('vehicleId', 'vehicleModel registrationNumber').sort({ travelDate: 1, travelDateTime: 1 });
-    return { status: 200, data: rides };
+    const rides = await Ride.find(query)
+      .populate('driverId', 'name phone email')
+      .populate('vehicleId', 'vehicleModel model registrationNumber seatingCapacity')
+      .sort({ travelDate: 1, travelDateTime: 1 });
+
+    return { status: 200, data: { results: rides, rides } };
   } catch (err) {
     console.error(`[Search Rides Error] ${err.message}`, err);
     return { status: 500, data: { error: 'Failed to search rides', details: err.message } };
   }
 });
 
-module.exports = { publishRide, searchRides };
+const getRideById = catchAsync(async (user, rideId) => {
+  try {
+    const ride = await Ride.findById(rideId)
+      .populate('driverId', 'name phone email')
+      .populate('vehicleId', 'vehicleModel model registrationNumber seatingCapacity');
+
+    if (!ride) return { status: 404, data: { error: 'Ride not found' } };
+    return { status: 200, data: ride };
+  } catch (err) {
+    return { status: 500, data: { error: 'Failed to retrieve ride details', details: err.message } };
+  }
+});
+
+module.exports = {
+  publishRide,
+  createRide: publishRide,
+  searchRides,
+  getRideById
+};

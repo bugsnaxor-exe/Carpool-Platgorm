@@ -57,6 +57,7 @@ const server = http.createServer(async (req, res) => {
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname;
   const method = req.method;
+  const queryParams = parsedUrl.query;
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
@@ -98,9 +99,29 @@ const server = http.createServer(async (req, res) => {
   const user = verifyToken(token);
 
   try {
-    // Modular Async Mongoose Controller Routing & Fail-Safe Route Aliases
-    if ((pathname === '/api/auth/login' || pathname === '/api/login') && method === 'POST') {
+    // 1. AUTH / USER ENDPOINTS (Backend2 + Platform Aliases)
+    if ((pathname === '/api/users/login/email' || pathname === '/api/auth/login' || pathname === '/api/login') && method === 'POST') {
       const result = await authController.login(await parseBody(req));
+      return sendJson(res, result.status, result.data);
+    }
+
+    if ((pathname === '/api/users/register' || pathname === '/api/auth/register' || pathname === '/api/register') && method === 'POST') {
+      const result = await authController.register(await parseBody(req));
+      return sendJson(res, result.status, result.data);
+    }
+
+    if (pathname === '/api/users/login/forgot-password' && method === 'POST') {
+      const result = await authController.forgotPassword(await parseBody(req));
+      return sendJson(res, result.status, result.data);
+    }
+
+    if (pathname === '/api/users/login/reset-password' && method === 'POST') {
+      const result = await authController.resetPassword(await parseBody(req));
+      return sendJson(res, result.status, result.data);
+    }
+
+    if (pathname === '/api/users/profile' && method === 'PUT') {
+      const result = await authController.updateProfile(user, await parseBody(req));
       return sendJson(res, result.status, result.data);
     }
 
@@ -114,18 +135,14 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, result.status, result.data);
     }
 
-    if ((pathname === '/api/auth/register' || pathname === '/api/register') && method === 'POST') {
-      const result = await authController.register(await parseBody(req));
-      return sendJson(res, result.status, result.data);
-    }
-
     if (pathname === '/api/auth/me' && method === 'GET') {
       const result = await authController.getMe(user);
       return sendJson(res, result.status, result.data);
     }
 
-    if (pathname === '/api/vehicles' && method === 'GET') {
-      const result = await vehicleController.getVehicles(user);
+    // 2. VEHICLES ENDPOINTS (Backend2 + Platform Aliases)
+    if ((pathname === '/api/vehicles' || pathname === '/api/vehicles/user') && method === 'GET') {
+      const result = await vehicleController.getUserVehicles(user);
       return sendJson(res, result.status, result.data);
     }
 
@@ -134,30 +151,67 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, result.status, result.data);
     }
 
-    if (pathname === '/api/rides/publish' && method === 'POST') {
+    if (pathname.startsWith('/api/vehicles/') && method === 'PUT') {
+      const vehicleId = pathname.split('/')[3];
+      const result = await vehicleController.updateVehicle(user, vehicleId, await parseBody(req));
+      return sendJson(res, result.status, result.data);
+    }
+
+    if (pathname.startsWith('/api/vehicles/') && method === 'DELETE') {
+      const vehicleId = pathname.split('/')[3];
+      const result = await vehicleController.deleteVehicle(user, vehicleId);
+      return sendJson(res, result.status, result.data);
+    }
+
+    // 3. RIDES ENDPOINTS (Backend2 + Platform Aliases)
+    if ((pathname === '/api/rides/new' || pathname === '/api/rides/publish' || pathname === '/api/rides') && method === 'POST') {
       const result = await rideController.publishRide(user, await parseBody(req));
       return sendJson(res, result.status, result.data);
     }
 
-    if (pathname === '/api/rides/search' && method === 'POST') {
-      const result = await rideController.searchRides(user, await parseBody(req));
+    if (pathname === '/api/rides/search' && (method === 'GET' || method === 'POST')) {
+      const bodyData = method === 'POST' ? await parseBody(req) : {};
+      const result = await rideController.searchRides(user, bodyData, queryParams);
       return sendJson(res, result.status, result.data);
     }
 
-    if (pathname === '/api/trips/book' && method === 'POST') {
+    if (pathname.startsWith('/api/rides/') && method === 'GET') {
+      const rideId = pathname.split('/')[3];
+      if (rideId && rideId !== 'search' && rideId !== 'new' && rideId !== 'publish') {
+        const result = await rideController.getRideById(user, rideId);
+        return sendJson(res, result.status, result.data);
+      }
+    }
+
+    // 4. TRIPS ENDPOINTS (Backend2 + Platform Aliases)
+    if ((pathname === '/api/trips/book' || pathname === '/api/travel/book') && method === 'POST') {
       const result = await tripController.bookTrip(user, await parseBody(req));
       return sendJson(res, result.status, result.data);
     }
 
-    if (pathname === '/api/trips/my-trips' && method === 'GET') {
-      const result = await tripController.getMyTrips(user);
+    if ((pathname === '/api/trips/my-trips' || pathname.startsWith('/api/travel/user')) && method === 'GET') {
+      const result = await tripController.getMyTrips(user, queryParams);
       return sendJson(res, result.status, result.data);
     }
 
-    if (pathname.startsWith('/api/trips/') && pathname.endsWith('/status') && method === 'PATCH') {
-      const tripId = pathname.split('/')[3];
+    if ((pathname.startsWith('/api/trips/') || pathname.startsWith('/api/travel/')) && pathname.endsWith('/status') && method === 'PATCH') {
+      const parts = pathname.split('/');
+      const tripId = parts[3];
       const result = await tripController.updateTripStatus(user, tripId, await parseBody(req));
       return sendJson(res, result.status, result.data);
+    }
+
+    if ((pathname.startsWith('/api/trips/') || pathname.startsWith('/api/travel/')) && pathname.endsWith('/payment') && (method === 'PATCH' || method === 'POST')) {
+      const parts = pathname.split('/');
+      const tripId = parts[3];
+      const bodyData = await parseBody(req);
+      if (method === 'POST') {
+        const result = await walletController.payTrip(user, tripId, bodyData);
+        return sendJson(res, result.status, result.data);
+      } else {
+        const result = await tripController.updatePaymentStatus(user, tripId, bodyData);
+        return sendJson(res, result.status, result.data);
+      }
     }
 
     if (pathname.startsWith('/api/trips/') && pathname.endsWith('/sos') && method === 'POST') {
@@ -172,8 +226,18 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, result.status, result.data);
     }
 
-    if (pathname === '/api/wallet/balance' && method === 'GET') {
-      const result = await walletController.getWallet(user);
+    if ((pathname.startsWith('/api/trips/') || pathname.startsWith('/api/travel/')) && method === 'GET') {
+      const parts = pathname.split('/');
+      const tripId = parts[3];
+      if (tripId && tripId !== 'book' && tripId !== 'my-trips') {
+        const result = await tripController.getTripDetails(user, tripId);
+        return sendJson(res, result.status, result.data);
+      }
+    }
+
+    // 5. WALLET ENDPOINTS (Backend2 + Platform Aliases)
+    if ((pathname === '/api/wallet/me' || pathname === '/api/wallet/balance' || pathname === '/api/wallet') && method === 'GET') {
+      const result = await walletController.getWalletDetails(user);
       return sendJson(res, result.status, result.data);
     }
 
@@ -182,12 +246,17 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, result.status, result.data);
     }
 
-    if (pathname.startsWith('/api/trips/') && pathname.endsWith('/payment') && method === 'POST') {
-      const tripId = pathname.split('/')[3];
-      const result = await walletController.payTrip(user, tripId, await parseBody(req));
+    if (pathname === '/api/wallet/pay' && method === 'POST') {
+      const result = await walletController.payForTrip(user, await parseBody(req));
       return sendJson(res, result.status, result.data);
     }
 
+    if (pathname === '/api/wallet/history' && method === 'GET') {
+      const result = await walletController.getTransactionHistory(user, queryParams);
+      return sendJson(res, result.status, result.data);
+    }
+
+    // 6. ADMIN ENDPOINTS
     if (pathname === '/api/admin/employees' && method === 'GET') {
       const result = await adminController.getEmployees(user);
       return sendJson(res, result.status, result.data);
@@ -233,7 +302,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`====================================================`);
   console.log(` MONGODB-POWERED CARPOOL PLATFORM RUNNING ON PORT ${PORT}`);
-  console.log(` Endpoints: Auth, Rides, Trips, SOS, Wallet, Receipts, Admin`);
-  console.log(` Ready at http://localhost:${PORT}`);
+  console.log(` Backend2 Routes & Frontend Connected on http://localhost:${PORT}`);
   console.log(`====================================================`);
 });

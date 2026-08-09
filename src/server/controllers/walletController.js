@@ -1,11 +1,10 @@
-const mongoose = require('mongoose');
 const Wallet = require('../../../models/Wallet');
 const User = require('../../../models/User');
 const Trip = require('../../../models/Trip');
 const Transaction = require('../../../models/Transaction');
 const { catchAsync } = require('../utils/errorHandler');
 
-const getWallet = catchAsync(async (user) => {
+const getWalletDetails = catchAsync(async (user) => {
   try {
     if (!user) return { status: 401, data: { error: 'Unauthorized' } };
 
@@ -16,15 +15,16 @@ const getWallet = catchAsync(async (user) => {
       wallet = await Wallet.create({ userId: user._id, balance: 1250 });
     }
 
-    const currentBalance = dbUser ? (dbUser.wallet || dbUser.walletBalance || wallet.balance) : wallet.balance;
-    const transactions = await Transaction.find({ userId: user._id }).sort({ createdAt: -1 }).limit(20);
+    const currentBalance = dbUser ? (dbUser.wallet !== undefined ? dbUser.wallet : (dbUser.walletBalance !== undefined ? dbUser.walletBalance : wallet.balance)) : wallet.balance;
+    const ledger = await Transaction.find({ userId: user._id }).populate({ path: 'tripId', select: 'pickupLocation destination status' }).sort({ createdAt: -1 }).limit(20);
 
     return {
       status: 200,
       data: {
         balance: currentBalance,
         walletBalance: currentBalance,
-        transactions
+        ledger,
+        transactions: ledger
       }
     };
   } catch (err) {
@@ -37,7 +37,7 @@ const rechargeWallet = catchAsync(async (user, body) => {
   try {
     if (!user) return { status: 401, data: { error: 'Unauthorized' } };
 
-    const { amount, paymentMethod = 'UPI' } = body;
+    const { amount, paymentMethod = 'UPI', gatewayTransactionId } = body;
     const numAmount = Number(amount);
 
     if (!numAmount || numAmount <= 0) {
@@ -65,13 +65,15 @@ const rechargeWallet = catchAsync(async (user, body) => {
       transactionType: 'Credit',
       amount: numAmount,
       description: `Wallet Recharge via ${paymentMethod}`,
-      paymentMethod
+      paymentMethod,
+      gatewayTransactionId
     });
 
     return {
       status: 200,
       data: {
         message: 'Wallet recharged successfully',
+        newBalance: dbUser ? dbUser.wallet : wallet.balance,
         balance: dbUser ? dbUser.wallet : wallet.balance,
         transaction
       }
@@ -82,9 +84,12 @@ const rechargeWallet = catchAsync(async (user, body) => {
   }
 });
 
-const payTrip = catchAsync(async (user, tripId, body) => {
+const payForTrip = catchAsync(async (user, body) => {
   try {
     if (!user) return { status: 401, data: { error: 'Unauthorized' } };
+
+    const { tripId } = body;
+    if (!tripId) return { status: 400, data: { error: 'tripId is required' } };
 
     const trip = await Trip.findById(tripId);
     if (!trip) return { status: 404, data: { error: 'Trip not found' } };
@@ -103,7 +108,7 @@ const payTrip = catchAsync(async (user, tripId, body) => {
 
     const passengerWallet = (passenger && passenger.wallet !== undefined) ? passenger.wallet : 0;
     if (passengerWallet < fare) {
-      return { status: 400, data: { error: 'Insufficient wallet balance. Please recharge your wallet.' } };
+      return { status: 400, data: { error: 'Insufficient wallet balance. Please recharge.' } };
     }
 
     if (passenger) {
@@ -144,7 +149,8 @@ const payTrip = catchAsync(async (user, tripId, body) => {
     return {
       status: 200,
       data: {
-        message: 'Payment completed successfully',
+        message: 'Payment successful',
+        passengerBalance: passenger ? passenger.wallet : 0,
         balance: passenger ? passenger.wallet : 0,
         trip
       }
@@ -155,4 +161,29 @@ const payTrip = catchAsync(async (user, tripId, body) => {
   }
 });
 
-module.exports = { getWallet, rechargeWallet, payTrip };
+const getTransactionHistory = catchAsync(async (user, queryParams = {}) => {
+  try {
+    if (!user) return { status: 401, data: { error: 'Unauthorized' } };
+    const { type } = queryParams;
+
+    const filter = { userId: user._id };
+    if (type) filter.transactionType = type;
+
+    const history = await Transaction.find(filter)
+      .populate({ path: 'tripId', select: 'pickupLocation destination status' })
+      .sort({ createdAt: -1 });
+
+    return { status: 200, data: { results: history, history } };
+  } catch (err) {
+    return { status: 500, data: { error: 'Failed to retrieve transaction history', details: err.message } };
+  }
+});
+
+module.exports = {
+  getWallet: getWalletDetails,
+  getWalletDetails,
+  rechargeWallet,
+  payTrip: payForTrip,
+  payForTrip,
+  getTransactionHistory
+};
