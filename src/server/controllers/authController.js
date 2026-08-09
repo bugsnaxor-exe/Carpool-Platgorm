@@ -38,20 +38,33 @@ const login = catchAsync(async (body) => {
       ]
     }).populate('organizationId');
 
-    if (!user || !(await user.matchPassword(password)) && !verifyPassword(password, user.password)) {
-      if (user) {
-        user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
-        await user.save();
+    let isPasswordValid = false;
+
+    if (user && user.password) {
+      isPasswordValid = verifyPassword(password, user.password);
+      if (!isPasswordValid && typeof user.matchPassword === 'function') {
+        try {
+          isPasswordValid = await user.matchPassword(password);
+        } catch (e) {}
       }
-      return { status: 401, data: { error: 'Invalid credentials. Please check your email and password.' } };
     }
 
-    user.lastLoginAt = new Date();
-    user.loginCount = (user.loginCount || 0) + 1;
-    user.failedLoginAttempts = 0;
-    user.lastLoginIp = '127.0.0.1';
-    user.loginDevice = 'Web Browser Shell';
-    await user.save();
+    if (!user || !isPasswordValid) {
+      if (user) {
+        await User.updateOne({ _id: user._id }, { $inc: { failedLoginAttempts: 1 } });
+      }
+      return { status: 401, data: { error: 'Invalid credentials. Please check your corporate email and password.' } };
+    }
+
+    await User.updateOne({ _id: user._id }, {
+      $set: {
+        lastLoginAt: new Date(),
+        lastLoginIp: '127.0.0.1',
+        loginDevice: 'Web Browser Shell',
+        failedLoginAttempts: 0
+      },
+      $inc: { loginCount: 1 }
+    });
 
     const token = generateToken({
       _id: user._id.toString(),

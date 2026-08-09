@@ -37,100 +37,39 @@ const isDBConnected = () => isConnected && mongoose.connection.readyState === 1;
 
 const seedDatabaseIfNeeded = async () => {
   try {
-    const orgCount = await Organization.countDocuments();
-    if (orgCount > 0) return;
+    let org = await Organization.findOne({ code: 'ACME' });
+    if (!org) {
+      org = await Organization.create({
+        name: 'Acme Corporation',
+        code: 'ACME',
+        fuelCostPerLiter: 102.50,
+        travelCostPerKm: 8.50
+      });
+    }
 
-    console.log('[DB Seeder] Empty database detected. Seeding initial enterprise organization and demo data...');
     const pwd = hashPassword('Password123!');
+    const demoAccounts = [
+      { name: 'Alex Rivera', email: 'alex.rivera@acme.com', mobileNumber: '+919876543210', phone: '+919876543210', role: 'EMPLOYEE', organizationId: org._id },
+      { name: 'Priya Sharma', email: 'priya.sharma@acme.com', mobileNumber: '+919876543211', phone: '+919876543211', role: 'EMPLOYEE', organizationId: org._id },
+      { name: 'Acme Admin', email: 'admin@acme.com', mobileNumber: '+919876543212', phone: '+919876543212', role: 'COMPANY_ADMIN', organizationId: org._id }
+    ];
 
-    const org1 = await Organization.create({
-      name: 'Acme Corporation',
-      code: 'ACME',
-      fuelCostPerLiter: 102.50,
-      travelCostPerKm: 8.50
-    });
-
-    const admin = await User.create({
-      name: 'Sarah Connor',
-      email: 'admin@acme.com',
-      mobileNumber: '+919876543210',
-      password: pwd,
-      role: 'COMPANY_ADMIN',
-      organizationId: org1._id,
-      department: 'Corporate Mobility',
-      savedPlaces: [{ label: 'HQ Office', address: 'Tech Park, Whitefield', lat: 12.9716, lng: 77.5946 }]
-    });
-
-    const driver1 = await User.create({
-      name: 'Alex Rivera',
-      email: 'alex.rivera@acme.com',
-      mobileNumber: '+919811223344',
-      password: pwd,
-      role: 'EMPLOYEE',
-      organizationId: org1._id,
-      department: 'Engineering',
-      savedPlaces: [
-        { label: 'Home', address: 'Bellandur', lat: 12.9279, lng: 77.6772 },
-        { label: 'Office', address: 'E-City Campus', lat: 12.8452, lng: 77.6602 }
-      ]
-    });
-
-    const passenger1 = await User.create({
-      name: 'Priya Sharma',
-      email: 'priya.s@acme.com',
-      mobileNumber: '+919988776655',
-      password: pwd,
-      role: 'EMPLOYEE',
-      organizationId: org1._id,
-      department: 'Product Design',
-      savedPlaces: [{ label: 'Home', address: 'HSR Layout', lat: 12.9121, lng: 77.6445 }]
-    });
-
-    const veh1 = await Vehicle.create({
-      userId: driver1._id,
-      organizationId: org1._id,
-      model: 'Tata Nexon EV',
-      registrationNumber: 'KA-01-EQ-9988',
-      seatingCapacity: 4,
-      fuelType: 'EV',
-      color: 'Teal Blue',
-      status: 'APPROVED'
-    });
-
-    await Ride.create({
-      driverId: driver1._id,
-      driverName: driver1.name,
-      driverPhone: driver1.mobileNumber,
-      vehicleId: veh1._id,
-      vehicleModel: `${veh1.model} (${veh1.registrationNumber})`,
-      organizationId: org1._id,
-      pickupLocation: { name: 'Green Glen Layout, Bellandur', lat: 12.9279, lng: 77.6772 },
-      destinationLocation: { name: 'Acme Campus, Electronic City', lat: 12.8452, lng: 77.6602 },
-      travelDateTime: new Date(Date.now() + 3600000),
-      totalSeats: 3,
-      availableSeats: 2,
-      farePerSeat: 120,
-      recurring: true,
-      routeDistanceKm: 14.5,
-      estimatedDurationMins: 30,
-      status: 'OPEN'
-    });
-
-    await Wallet.create({ userId: admin._id, balance: 1500 });
-    await Wallet.create({ userId: driver1._id, balance: 850 });
-    await Wallet.create({ userId: passenger1._id, balance: 600 });
-
-    await AuditLog.create({
-      performedBy: admin._id,
-      action: 'MONGODB_ATLAS_SEED',
-      targetType: 'Platform',
-      details: 'Initialized Mongoose schemas & Atlas connection',
-      organizationId: org1._id
-    });
-
-    console.log('[DB Seeder] Clean initial enterprise database seeded successfully.');
+    for (const u of demoAccounts) {
+      const existing = await User.findOne({ email: u.email });
+      if (!existing) {
+        await User.create({
+          ...u,
+          password: pwd,
+          wallet: 500,
+          walletBalance: 500,
+          status: 'ACTIVE',
+          emailVerified: true
+        });
+        console.log(`[DB Seeder] Demo Account Ensured: ${u.email}`);
+      }
+    }
   } catch (err) {
-    console.error('[DB Seeder] Error seeding initial database:', err);
+    console.error('[DB Seeder] Error seeding demo accounts:', err.message);
   }
 };
 
