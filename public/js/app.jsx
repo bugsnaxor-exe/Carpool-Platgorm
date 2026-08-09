@@ -132,8 +132,8 @@ function App() {
                       </div>
                     </div>
 
-                    {/* Active Mobile Screen Tab */}
-                    <div className="mobile-content-area">
+                    {/* Active Mobile Screen Tab with Smooth Transition */}
+                    <div className="mobile-content-area view-transition" key={activeTab}>
                       {activeTab === 'FIND' && <FindRideView token={token} walletBalance={walletBalance} setWalletBalance={setWalletBalance} setActiveTab={setActiveTab} />}
                       {activeTab === 'OFFER' && <OfferRideView token={token} setActiveTab={setActiveTab} />}
                       {activeTab === 'TRIPS' && <MyTripsView token={token} walletBalance={walletBalance} setWalletBalance={setWalletBalance} />}
